@@ -112,14 +112,14 @@ SERVICE_NAME="mtproxy"
 DEFAULT_PORT=9443
 DEFAULT_CHANNEL="vsemvpn_com"
 
-print_step "Базовая настройка"
+print_step "Этап 1: Базовая настройка"
 read -p "Введите порт прокси (по умолчанию: $DEFAULT_PORT): " USER_PORT
 PORT=${USER_PORT:-$DEFAULT_PORT}
 
 # Канал по умолчанию
 CHANNEL_TAG="vsemvpn_com"
 
-print_step "Подготовка системы"
+print_step "Этап 2: Подготовка системы"
 if command -v apt >/dev/null 2>&1; then
     echo -e "${YELLOW}Обновление пакетов и установка зависимостей...${NC}"
     apt update -qq
@@ -129,7 +129,7 @@ else
     exit 1
 fi
 
-print_step "Установка файлов"
+print_step "Этап 3: Установка файлов"
 mkdir -p $INSTALL_DIR
 cd $INSTALL_DIR
 systemctl stop mtproxy 2>/dev/null
@@ -143,7 +143,7 @@ else
     exit 1
 fi
 
-print_step "Безопасность и Сеть"
+print_step "Этап 4: Безопасность и Сеть"
 if [[ -f "/opt/MTProxy/info.txt" ]] && grep -q "Base Secret:" /opt/MTProxy/info.txt; then
     USER_SECRET=$(grep "Base Secret:" /opt/MTProxy/info.txt | awk '{print $3}')
     echo -e "${GREEN}Используется прежний секрет: $USER_SECRET${NC}"
@@ -162,19 +162,19 @@ done
 [[ -z "$EXTERNAL_IP" ]] && EXTERNAL_IP="YOUR_SERVER_IP"
 echo -e "${GREEN}Ваш IP: $EXTERNAL_IP${NC}"
 
-print_step "Конфигурация домена"
+print_step "Этап 5: Конфигурация домена"
 echo -e "${CYAN}Вы можете указать доменное имя (например, proxy.example.com)${NC}"
 read -p "Введите домен (пусто для IP): " USER_DOMAIN
 PROXY_HOST=${USER_DOMAIN:-$EXTERNAL_IP}
 
-print_step "Настройка TLS-маскировки"
+print_step "Этап 6: Настройка TLS-маскировки"
 TLS_DOMAINS=("github.com" "cloudflare.com" "microsoft.com" "amazon.com" "wikipedia.org" "reddit.com")
 RANDOM_DOMAIN=${TLS_DOMAINS[$RANDOM % ${#TLS_DOMAINS[@]}]}
 read -p "TLS-домен для маскировки (по умолчанию: $RANDOM_DOMAIN): " USER_TLS_DOMAIN
 TLS_DOMAIN=${USER_TLS_DOMAIN:-$RANDOM_DOMAIN}
 echo -e "${GREEN}Используется маскировка под: $TLS_DOMAIN${NC}"
 
-print_step "Создание системного сервиса"
+print_step "Этап 7: Создание системного сервиса"
 cat > "/etc/systemd/system/$SERVICE_NAME.service" << EOL
 [Unit]
 Description=MTProxy Telegram Proxy
@@ -203,7 +203,7 @@ if command -v ufw &> /dev/null && ufw status | grep -q "Status: active"; then
     ufw allow $PORT/tcp >/dev/null
 fi
 
-print_step "Утилита управления"
+print_step "Завершение: Утилита управления"
 cat > "/tmp/mtproxy_utility" << 'UTILITY_EOF'
 #!/bin/bash
 RED='\033[0;31m'
