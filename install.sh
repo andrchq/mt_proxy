@@ -53,11 +53,12 @@ check_external_port() {
 
 # Очистка экрана и приветствие
 clear
-print_banner "Установка Telegram MTProxy (Нативная компиляция)"
+print_banner "Установка Telegram MTProxy"
 
 # 1. Диагностика сети
 print_step "Шаг 1: Диагностика сети до серверов Telegram"
-TG_IPS=("91.108.56.100" "149.154.167.50" "91.108.4.100")
+# Используем IP из предоставленного списка
+TG_IPS=("149.154.175.50" "149.154.167.51" "149.154.175.100" "149.154.167.91" "149.154.171.5")
 SUCCESS_PINGS=0
 
 for ip in "${TG_IPS[@]}"; do
@@ -73,18 +74,19 @@ done
 
 if [ "$SUCCESS_PINGS" -eq 0 ]; then
     echo -e "${RED}ВНИМАНИЕ: Связь с серверами Telegram отсутствует.${NC}"
-    read -p "Продолжить установку все равно? [y/N]: " choice
+    read -p "Продолжить установку все равно? [y/N]: " choice < /dev/tty
     [[ "$choice" =~ ^[Yy]$ ]] || exit 1
 else
-    echo -e "${GREEN}Диагностика завершена успешно ($SUCCESS_PINGS/3 серверов ответили).${NC}"
+    echo -e "${GREEN}Диагностика завершена успешно ($SUCCESS_PINGS/${#TG_IPS[@]} серверов ответили).${NC}"
 fi
 
 # 2. Настройка параметров
 print_step "Шаг 2: Настройка параметров"
-read -p "Введите порт для прокси [по умолчанию 443]: " PROXY_PORT
+# Используем /dev/tty для чтения при запуске через pipe
+read -p "Введите порт для прокси [по умолчанию 443]: " PROXY_PORT < /dev/tty
 PROXY_PORT=${PROXY_PORT:-443}
 
-read -p "Укажите домен (например, proxy.example.com) [оставьте пустым для авто-IP]: " PROXY_DOMAIN
+read -p "Укажите домен (например, proxy.example.com) [оставьте пустым для авто-IP]: " PROXY_DOMAIN < /dev/tty
 if [ -z "$PROXY_DOMAIN" ]; then
     PROXY_ADDR=$(curl -s https://api.ipify.org)
     echo -e "Автоматически определен IP: ${GREEN}$PROXY_ADDR${NC}"
@@ -96,18 +98,21 @@ fi
 echo -e "\n📢 Продвижение канала (AD TAG):"
 echo "1) Установить тег сейчас (32 символа)"
 echo "2) Настроить позже (через @MTProxybot)"
-read -p "Ваш выбор [1/2, по умолчанию 2]: " TAG_CHOICE
+read -p "Ваш выбор [1/2, по умолчанию 2]: " TAG_CHOICE < /dev/tty
 TAG_CHOICE=${TAG_CHOICE:-2}
 
 AD_TAG=""
 if [ "$TAG_CHOICE" == "1" ]; then
-    read -p "Введите тег (hex): " AD_TAG
+    read -p "Введите тег (hex): " AD_TAG < /dev/tty
 fi
 
 # 3. Установка зависимостей
 print_step "Шаг 3: Установка базовых инструментов (git, curl, make)"
 apt-get update
-apt-get install -y git curl build-essential make gcc g++ xxd libssl-dev zlib1g-dev
+# Сначала ставим самое важное по одному, чтобы видеть где ошибка
+for pkg in git curl build-essential make gcc g++ xxd libssl-dev zlib1g-dev; do
+    apt-get install -y $pkg || echo -e "${RED}Ошибка установки $pkg${NC}"
+done
 
 print_step "Шаг 3.1: Настройка Firewall (безопасная установка)"
 # Пытаемся установить ufw, если его нет
@@ -115,10 +120,10 @@ apt-get install -y ufw
 
 # Проверяем наличие ufw перед установкой более низкоуровневых штук
 if command -v ufw > /dev/null && systemctl is-active --quiet ufw; then
-    echo -e "${GREEN}UFW активен. Использование iptables-persistent пропущено для предотвращения конфликтов.${NC}"
+    echo -e "${GREEN}UFW активен. Пропускаем iptables-persistent.${NC}"
 else
-    # Если UFW нет или он выключен, пробуем поставить классику
-    apt-get install -y iptables-persistent || echo -e "${YELLOW}Предупреждение: Не удалось установить iptables-persistent, используем системные правила.${NC}"
+    # На Ubuntu 24.04 noble часто конфликт, пробуем ставить только если нужно
+    apt-get install -y iptables-persistent || echo -e "${YELLOW}Предупреждение: Не удалось поставить iptables-persistent.${NC}"
 fi
 
 # 4. Компиляция
@@ -132,16 +137,16 @@ git clone https://github.com/TelegramMessenger/MTProxy source
 cd source
 make -j$(nproc)
 if [ ! -f "objs/bin/mtproto-proxy" ]; then
-    echo -e "${RED}Ошибка компиляции! Проверьте логи выше.${NC}"
+    echo -e "${RED}ОШИБКА: Бинарный файл не найден после компиляции!${NC}"
     exit 1
 fi
 cp objs/bin/mtproto-proxy $BIN_PATH
 
 # 5. Генерация секрета
-print_step "Шаг 5: Генерация серетного ключа"
+print_step "Шаг 5: Генерация секретного ключа"
 # Генерируем секрет и переводим в ВЕРХНИЙ РЕГИСТР
 PROXY_SECRET=$(head -c 16 /dev/urandom | xxd -ps | tr '[:lower:]' '[:upper:]')
-echo -e "Ваш секрет (CAPS): ${GREEN}$PROXY_SECRET${NC}"
+echo -e "Ваш секрет: ${GREEN}$PROXY_SECRET${NC}"
 
 # 6. Системная настройка
 print_step "Шаг 6: Настройка системы и пользователей"
@@ -229,10 +234,9 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 show_dashboard() {
-    # Извлекаем данные из systemd unit
     local UNIT_FILE="/etc/systemd/system/mtproxy.service"
     if [ ! -f "$UNIT_FILE" ]; then 
-        echo -e "${RED}MTProxy не установлен.${NC}"; exit 1; 
+        echo -e "${RED}MTProxy не установлен.${NC}"; exit 1
     fi
     
     local PORT=$(grep -oP '(?<=Environment="PORT=)[^"]+' "$UNIT_FILE" | head -1)
@@ -240,34 +244,31 @@ show_dashboard() {
     local ADDR=$(grep -oP '(?<=Environment="ADDR=)[^"]+' "$UNIT_FILE" | head -1)
     local TAG=$(grep -oP '(?<=Environment="TAG=)[^"]+' "$UNIT_FILE" | head -1)
     
-    [[ -z "$TAG" ]] && TAG_DISP="(не установлен)" || TAG_DISP="@$TAG (через промо-тег)"
+    [[ -z "$TAG" ]] && TAG_DISP="(не установлен)" || TAG_DISP="@$TAG"
     
-    local STATUS_COLOR=$RED
-    systemctl is-active --quiet mtproxy && STATUS_COLOR=$GREEN
-    
-    echo -e "${CYAN}=== MTProxy Status ===${NC}"
+    echo -e "${CYAN}=== Статус MTProxy ===${NC}"
     echo ""
-    echo -ne "✅ Service: "
-    systemctl is-active --quiet mtproxy && echo -e "${GREEN}Running${NC}" || echo -e "${RED}Stopped${NC}"
+    echo -ne "✅ Служба: "
+    systemctl is-active --quiet mtproxy && echo -e "${GREEN}Запущена (Running)${NC}" || echo -e "${RED}Остановлена (Stopped)${NC}"
     
-    echo -e "📊 Configuration:"
-    echo -e "   Port: ${BOLD}$PORT${NC}"
-    echo -e "   Secret: ${BOLD}$SECRET${NC}"
-    echo -e "   Registration Secret (plain): ${BOLD}${SECRET}${NC}"
-    echo -e "   Promoted Channel: ${BOLD}${TAG_DISP}${NC}"
-    echo -e "   Proxy Host: ${BOLD}$ADDR${NC}"
+    echo -e "📊 Конфигурация:"
+    echo -e "   Порт: ${BOLD}$PORT${NC}"
+    echo -e "   Секрет: ${BOLD}$SECRET${NC}"
+    echo -e "   Секрет для регистрации (в @MTProxybot): ${BOLD}${SECRET}${NC}"
+    echo -e "   Продвигаемый канал: ${BOLD}${TAG_DISP}${NC}"
+    echo -e "   Хост прокси: ${BOLD}$ADDR${NC}"
     echo ""
-    echo -e "🔗 Connection Links:"
-    echo -e "Plain: ${BLUE}tg://proxy?server=$ADDR&port=$PORT&secret=$SECRET${NC}"
-    echo -e "DD:    ${BLUE}tg://proxy?server=$ADDR&port=$PORT&secret=dd$SECRET${NC}"
-    # TLS secret: ee + secret + hex(microsoft.com)
+    echo -e "🔗 Ссылки для подключения:"
+    echo -e "Обычная (для @MTProxybot): ${BLUE}tg://proxy?server=$ADDR&port=$PORT&secret=$SECRET${NC}"
+    echo -e "DD (старые клиенты):         ${BLUE}tg://proxy?server=$ADDR&port=$PORT&secret=dd$SECRET${NC}"
+    
     TLS_SEC="ee${SECRET}6D6963726F736F66742E636F6D"
-    echo -e "TLS:   ${BLUE}tg://proxy?server=$ADDR&port=$PORT&secret=$TLS_SEC${NC}"
+    echo -e "TLS:                       ${BLUE}tg://proxy?server=$ADDR&port=$PORT&secret=$TLS_SEC${NC}"
     echo ""
-    echo -e "🌐 Web Links:"
-    echo -e "Plain: ${BLUE}https://t.me/proxy?server=$ADDR&port=$PORT&secret=$SECRET${NC}"
-    echo -e "DD:    ${BLUE}https://t.me/proxy?server=$ADDR&port=$PORT&secret=dd$SECRET${NC}"
-    echo -e "TLS:   ${BLUE}https://t.me/proxy?server=$ADDR&port=$PORT&secret=$TLS_SEC${NC}"
+    echo -e "🌐 Веб-ссылки:"
+    echo -e "Обычная: ${BLUE}https://t.me/proxy?server=$ADDR&port=$PORT&secret=$SECRET${NC}"
+    echo -e "DD:      ${BLUE}https://t.me/proxy?server=$ADDR&port=$PORT&secret=dd$SECRET${NC}"
+    echo -e "TLS:     ${BLUE}https://t.me/proxy?server=$ADDR&port=$PORT&secret=$TLS_SEC${NC}"
     echo ""
 }
 
@@ -283,8 +284,7 @@ case "$1" in
         echo -e "${GREEN}Сервис перезапущен.${NC}"
         ;;
     check)
-        UNIT_FILE="/etc/systemd/system/mtproxy.service"
-        PORT=$(grep -oP '(?<=Environment="PORT=)[^"]+' "$UNIT_FILE" | head -1)
+        PORT=$(grep -oP '(?<=Environment="PORT=)[^"]+' "/etc/systemd/system/mtproxy.service" | head -1)
         echo -e "Проверка порта $PORT..."
         if curl -s --max-time 10 "https://port-check.io/api?port=$PORT" | grep -q "open"; then
             echo -e "${GREEN}Порт $PORT открыт.${NC}"
@@ -293,6 +293,7 @@ case "$1" in
         fi
         ;;
     uninstall)
+        echo -e "${RED}${BOLD}!!! ВНИМАНИЕ !!!${NC}"
         read -p "Вы уверены, что хотите ПОЛНОСТЬЮ удалить MTProxy? [y/N]: " confirm
         if [[ "$confirm" =~ ^[Yy]$ ]]; then
             systemctl stop mtproxy
