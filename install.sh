@@ -82,12 +82,33 @@ read -p "Введите порт для прокси [по умолчанию 44
 PROXY_PORT=${PROXY_PORT:-443}
 
 read -p "Укажите домен (например, proxy.example.com) [оставьте пустым для авто-IP]: " PROXY_DOMAIN < /dev/tty
+SERVER_IP=$(curl -s https://api.ipify.org)
+
 if [ -z "$PROXY_DOMAIN" ]; then
-    PROXY_ADDR=$(curl -s https://api.ipify.org)
+    PROXY_ADDR=$SERVER_IP
     echo -e "Автоматически определен IP: ${GREEN}$PROXY_ADDR${NC}"
 else
     PROXY_ADDR=$PROXY_DOMAIN
-    echo -e "Используется адрес: ${GREEN}$PROXY_ADDR${NC}"
+    echo -e "Проверка домена ${CYAN}$PROXY_DOMAIN${NC}..."
+    
+    # Пытаемся зарезолвить IP домена
+    DOMAIN_IP=$(getent hosts "$PROXY_DOMAIN" | awk '{ print $1 }' | head -n 1)
+    
+    if [ -z "$DOMAIN_IP" ]; then
+        echo -e "${RED}⚠️  ОШИБКА: Домен $PROXY_DOMAIN не резолвится в IP-адрес.${NC}"
+        echo -e "${YELLOW}Убедитесь, что вы создали A-запись в панели управления доменом.${NC}"
+        read -p "Продолжить установку на свой страх и риск? [y/N]: " dns_choice < /dev/tty
+        [[ "$dns_choice" =~ ^[Yy]$ ]] || exit 1
+    elif [ "$DOMAIN_IP" != "$SERVER_IP" ]; then
+        echo -e "${RED}⚠️  ВНИМАНИЕ: Несоответствие IP!${NC}"
+        echo -e "Домен ${CYAN}$PROXY_DOMAIN${NC} указывает на IP: ${YELLOW}$DOMAIN_IP${NC}"
+        echo -e "Текущий IP этого сервера: ${GREEN}$SERVER_IP${NC}"
+        echo -e "${YELLOW}Прокси может не работать, пока DNS-записи не обновятся.${NC}"
+        read -p "Все равно использовать этот домен? [y/N]: " dns_match_choice < /dev/tty
+        [[ "$dns_match_choice" =~ ^[Yy]$ ]] || exit 1
+    else
+        echo -e "${GREEN}✅ Домен успешно сопоставлен с IP сервера ($SERVER_IP).${NC}"
+    fi
 fi
 
 # 3. Fake TLS Маскировка
