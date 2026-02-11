@@ -56,7 +56,7 @@ if [[ "$1" == "uninstall" ]]; then
     echo -e "  • Все конфигурационные файлы и секреты"
     echo ""
     
-    read -p "Вы уверены, что хотите продолжить? (введите 'YES' для подтверждения): " CONFIRM
+    read -p "Вы уверены, что хотите продолжить? (введите 'YES' для подтверждения): " CONFIRM </dev/tty
     
     if [[ "$CONFIRM" != "YES" ]]; then
         echo -e "${GREEN}Удаление отменено.${NC}"
@@ -113,7 +113,7 @@ DEFAULT_PORT=9443
 DEFAULT_CHANNEL="vsemvpn_com"
 
 print_step "Этап 1: Базовая настройка"
-read -p "Введите порт прокси (по умолчанию: $DEFAULT_PORT): " USER_PORT
+read -p "Введите порт прокси (по умолчанию: $DEFAULT_PORT): " USER_PORT </dev/tty
 PORT=${USER_PORT:-$DEFAULT_PORT}
 
 # Канал по умолчанию
@@ -164,13 +164,13 @@ echo -e "${GREEN}Ваш IP: $EXTERNAL_IP${NC}"
 
 print_step "Этап 5: Конфигурация домена"
 echo -e "${CYAN}Вы можете указать доменное имя (например, proxy.example.com)${NC}"
-read -p "Введите домен (пусто для IP): " USER_DOMAIN
+read -p "Введите домен (пусто для IP): " USER_DOMAIN </dev/tty
 PROXY_HOST=${USER_DOMAIN:-$EXTERNAL_IP}
 
 print_step "Этап 6: Настройка TLS-маскировки"
 TLS_DOMAINS=("github.com" "cloudflare.com" "microsoft.com" "amazon.com" "wikipedia.org" "reddit.com")
 RANDOM_DOMAIN=${TLS_DOMAINS[$RANDOM % ${#TLS_DOMAINS[@]}]}
-read -p "TLS-домен для маскировки (по умолчанию: $RANDOM_DOMAIN): " USER_TLS_DOMAIN
+read -p "TLS-домен для маскировки (по умолчанию: $RANDOM_DOMAIN): " USER_TLS_DOMAIN </dev/tty
 TLS_DOMAIN=${USER_TLS_DOMAIN:-$RANDOM_DOMAIN}
 echo -e "${GREEN}Используется маскировка под: $TLS_DOMAIN${NC}"
 
@@ -297,7 +297,7 @@ case "${1:-status}" in
     "uninstall")
         clear
         print_header "УДАЛЕНИЕ MTProxy" "${RED}"
-        read -p "Вы уверены? (YES): " CONFIRM
+        read -p "Вы уверены? (введите 'YES' для подтверждения): " CONFIRM </dev/tty
         [[ "$CONFIRM" != "YES" ]] && exit 0
         systemctl stop $SERVICE_NAME; systemctl disable $SERVICE_NAME
         rm -f "/etc/systemd/system/$SERVICE_NAME.service"
