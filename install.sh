@@ -122,37 +122,41 @@ read -p "Введите AD TAG (hex): " AD_TAG < /dev/tty
 print_step "Шаг 6: Развертывание прокси (Docker)"
 mkdir -p $BASE_DIR
 
-IMAGE="9seconds/mtg:latest"
-MIRRORS=("dockerhub.timeweb.cloud" "dockerhub1.beget.com" "cr.yandex/mirror")
+# Список источников для обхода блокировок
+PRIMARY_IMAGE="ghcr.io/9seconds/mtg:latest"
+DOCKER_IMAGE="9seconds/mtg:latest"
+MIRRORS=(
+    "ghcr.io/9seconds/mtg:latest"
+    "dh-mirror.gitverse.ru/9seconds/mtg:latest"
+    "dockerhub.timeweb.cloud/9seconds/mtg:latest"
+    "dockerhub1.beget.com/9seconds/mtg:latest"
+    "cr.yandex/mirror/9seconds/mtg:latest"
+    "m.daocloud.io/docker.io/9seconds/mtg:latest"
+)
 
-echo "Получение образа $IMAGE..."
-SUCCESS=0
+echo "Попытка загрузки образа..."
+IMAGE_READY=""
 
-# Пробуем прямой pull
-if docker pull $IMAGE; then
-    SUCCESS=1
-else
-    echo -e "${YELLOW}Прямой доступ к Docker Hub ограничен. Пробую зеркала...${NC}"
-    for mirror in "${MIRRORS[@]}"; do
-        echo -n "Проверка $mirror... "
-        if docker pull $mirror/$IMAGE; then
-            docker tag $mirror/$IMAGE $IMAGE
-            echo -e "${GREEN}OK${NC}"
-            SUCCESS=1
-            break
-        else
-            echo -e "${RED}FAIL${NC}"
-        fi
-    done
-fi
+for src in "${MIRRORS[@]}"; do
+    echo -n "Проверка источника $src... "
+    if docker pull "$src"; then
+        docker tag "$src" "9seconds/mtg:latest" &>/dev/null
+        IMAGE_READY="9seconds/mtg:latest"
+        echo -e "${GREEN}ГОТОВО${NC}"
+        break
+    else
+        echo -e "${RED}ОШИБКА${NC}"
+    fi
+done
 
-if [ $SUCCESS -eq 0 ]; then
-    echo -e "${RED}❌ Ошибка: Не удалось загрузить образ Docker. Docker Hub заблокирован, и зеркала недоступны.${NC}"
+if [[ -z "$IMAGE_READY" ]]; then
+    echo -e "${RED}❌ КРИТИЧЕСКАЯ ОШИБКА: Ни один из реестров недоступен.${NC}"
+    echo -e "${YELLOW}Попробуйте включить VPN на сервере или настроить Docker-прокси.${NC}"
     exit 1
 fi
 
 echo -n "Генерация секретного ключа... "
-SECRET=$(docker run --rm $IMAGE generate-secret -c $TLS_DOMAIN 2>/dev/null | tail -n 1)
+SECRET=$(docker run --rm 9seconds/mtg:latest generate-secret -c $TLS_DOMAIN 2>/dev/null | tail -n 1)
 if [[ -z "$SECRET" ]]; then
     SECRET="ee$(head -c 16 /dev/urandom | xxd -ps | tr -d '\n')$(echo -n "$TLS_DOMAIN" | xxd -ps | tr -d '\n')"
 fi
@@ -176,7 +180,7 @@ docker run -d \
   -e TLS_DOMAIN="$TLS_DOMAIN" \
   -e ADDR="$PROXY_ADDR" \
   -e PORT="$PROXY_PORT" \
-  $IMAGE run $SECRET $TAG_ARG
+  9seconds/mtg:latest run $SECRET $TAG_ARG
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}Служба запущена успешно!${NC}"
@@ -254,17 +258,17 @@ case "$1" in
         ADDR=$(echo "$C" | grep -oP '(?<="ADDR=)[^"]+')
         TAG=$(echo "$C" | grep -oP '(?<="TAG=)[^"]+')
         PORT=$(echo "$C" | grep -oP '(?<="PORT=)[^"]+')
-        NS=$(docker run --rm 9seconds/mtg:2 generate-secret -c $NEW_DOM 2>/dev/null | tail -n 1)
+        NS=$(docker run --rm 9seconds/mtg:latest generate-secret -c $NEW_DOM 2>/dev/null | tail -n 1)
         [[ -z "$NS" ]] && NS="ee$(head -c 16 /dev/urandom | xxd -ps | tr -d '\n')$(echo -n "$NEW_DOM" | xxd -ps | tr -d '\n')"
         docker rm -f mtp_proxy &>/dev/null
         T_ARG=""; [[ ! -z "$TAG" ]] && T_ARG="-t $TAG"
         docker run -d --name mtp_proxy --restart always -p ${PORT:-443}:3128 \
           -e SECRET="$NS" -e TAG="$TAG" -e TLS_DOMAIN="$NEW_DOM" -e ADDR="$ADDR" -e PORT="$PORT" \
-          9seconds/mtg:2 run $NS $T_ARG &>/dev/null
+          9seconds/mtg:latest run $NS $T_ARG &>/dev/null
         echo -e "${GREEN}Маскировка изменена на $NEW_DOM.${NC}"
         /usr/local/bin/mtp
         ;;
-    update) docker pull 9seconds/mtg:2 && docker restart mtp_proxy ;;
+    update) docker pull 9seconds/mtg:latest && docker restart mtp_proxy ;;
     uninstall)
         read -p "Удалить всё? [y/N]: " conf
         [[ "$conf" =~ ^[Yy]$ ]] && { docker rm -f mtp_proxy; rm -f /usr/local/bin/mtp; rm -rf /opt/mtp; echo "Удалено."; }
