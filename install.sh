@@ -7,7 +7,7 @@
 # Цвета для вывода
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\1;33m'
+YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
@@ -113,16 +113,16 @@ TLS_DOMAIN=${TLS_DOMAIN:-$BEST_DOMAIN}
 
 # 7. Продвижение канала
 print_step "Шаг 5: Настройка продвижения (AD TAG)"
-echo -e "${YELLOW}Подсказка:${NC} Чтобы ваш канал отображался у пользователей прокси, "
-echo -e "зарегистрируйте прокси в ${BOLD}@MTProxybot${NC} и получите ${BOLD}AD TAG${NC}."
-echo -e "Если у вас его пока нет, просто нажмите Enter (можно добавить позже).\n"
+echo -e "${YELLOW}Подсказка:${NC} Чтобы ваш канал отображался у пользователей прокси,"
+echo -e "зарегистрируйте прокси в @MTProxybot и получите AD TAG."
+echo -e "Если его нет, нажмите [ENTER] (можно добавить позже).\n"
 read -p "Введите AD TAG (hex): " AD_TAG < /dev/tty
 
 # 8. Запуск MTG
 print_step "Шаг 6: Развертывание прокси (Docker)"
 mkdir -p $BASE_DIR
 
-IMAGE="9seconds/mtg:stable"
+IMAGE="9seconds/mtg:latest"
 MIRRORS=("dockerhub.timeweb.cloud" "dockerhub1.beget.com" "cr.yandex/mirror")
 
 echo "Получение образа $IMAGE..."
