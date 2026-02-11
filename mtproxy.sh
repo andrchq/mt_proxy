@@ -16,6 +16,7 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
+clear
 echo -e "${BLUE}Установка MTProxy (Финальная версия)${NC}\n"
 
 # Требуется root
@@ -26,7 +27,12 @@ fi
 
 # Проверка опции удаления
 if [[ "$1" == "uninstall" ]]; then
-    echo -e "${YELLOW}🗑️  Удаление MTProxy${NC}\n"
+    if [[ -f "/usr/local/bin/mtproxy" ]]; then
+        /usr/local/bin/mtproxy uninstall
+        exit $?
+    fi
+
+    echo -e "${YELLOW}🗑️  Удаление MTProxy (через инсталлятор)${NC}\n"
     
     echo -e "${RED}ВНИМАНИЕ: Это полностью удалит MTProxy и все связанные файлы!${NC}"
     echo -e "${YELLOW}Будет удалено следующее:${NC}"
@@ -363,7 +369,69 @@ show_help() {
     echo -e "  ${GREEN}links${NC}     - Показать только ссылки для подключения"
     echo -e "  ${GREEN}info${NC}      - Показать подробную конфигурацию"
     echo -e "  ${GREEN}test${NC}      - Проверить доступность прокси"
+    echo -e "  ${GREEN}uninstall${NC} - Полностью удалить MTProxy"
     echo -e "  ${GREEN}help${NC}      - Показать эту справку"
+}
+
+do_uninstall() {
+    echo -e "${YELLOW}🗑️  Удаление MTProxy через утилиту управления${NC}\n"
+    
+    echo -e "${RED}ВНИМАНИЕ: Это полностью удалит MTProxy и все связанные файлы!${NC}"
+    echo -e "${YELLOW}Будет удалено следующее:${NC}"
+    echo -e "  • Сервис: /etc/systemd/system/$SERVICE_NAME.service"
+    echo -e "  • Директория установки: $INSTALL_DIR"
+    echo -e "  • Утилита управления: /usr/local/bin/mtproxy"
+    echo -e "  • Все конфигурационные файлы и секреты"
+    echo ""
+    
+    read -p "Вы уверены, что хотите продолжить? (введите 'YES' для подтверждения): " CONFIRM
+    
+    if [[ "$CONFIRM" != "YES" ]]; then
+        echo -e "${GREEN}Удаление отменено.${NC}"
+        return 0
+    fi
+    
+    echo -e "\n${YELLOW}Удаление MTProxy...${NC}"
+    
+    # Остановка и отключение сервиса
+    if systemctl is-active --quiet $SERVICE_NAME; then
+        echo -e "${YELLOW}Остановка сервиса $SERVICE_NAME...${NC}"
+        systemctl stop $SERVICE_NAME
+    fi
+    
+    if systemctl is-enabled --quiet $SERVICE_NAME 2>/dev/null; then
+        echo -e "${YELLOW}Отключение автозагрузки сервиса $SERVICE_NAME...${NC}"
+        systemctl disable $SERVICE_NAME
+    fi
+    
+    # Удаление файла сервиса
+    if [[ -f "/etc/systemd/system/$SERVICE_NAME.service" ]]; then
+        echo -e "${YELLOW}Удаление файла сервиса...${NC}"
+        rm -f "/etc/systemd/system/$SERVICE_NAME.service"
+        systemctl daemon-reload
+    fi
+    
+    # Удаление правил брандмауэра
+    if command -v ufw &> /dev/null && ufw status | grep -q "Status: active"; then
+        get_service_config
+        if [[ -n "$PORT" ]]; then
+            echo -e "${YELLOW}Удаление правила брандмауэра для порта $PORT...${NC}"
+            ufw delete allow ${PORT}/tcp 2>/dev/null
+        fi
+    fi
+    
+    # Удаление директории установки
+    if [[ -d "$INSTALL_DIR" ]]; then
+        echo -e "${YELLOW}Удаление директории установки...${NC}"
+        rm -rf "$INSTALL_DIR"
+    fi
+    
+    # ВАЖНО: Удаление самой утилиты в конце
+    echo -e "${YELLOW}Удаление утилиты управления...${NC}"
+    rm -f "/usr/local/bin/mtproxy"
+    
+    echo -e "\n${GREEN}✅ MTProxy был полностью удален!${NC}"
+    exit 0
 }
 
 get_service_config() {
@@ -612,12 +680,14 @@ TLS: $(echo "${EE_LINK:-Нет данных}" | sed 's/tg:/https:\/\/t.me/')
 
 Управление сервисом:
 ------------------
-Статус:  mtproxy status
-Запуск:  mtproxy start
-Стоп:    mtproxy stop
-Рестарт: mtproxy restart
-Логи:    mtproxy logs
-Инфо:    mtproxy info
+Статус:    mtproxy status
+Запуск:    mtproxy start
+Стоп:      mtproxy stop
+Рестарт:   mtproxy restart
+Логи:      mtproxy logs
+Тест:      mtproxy test
+Инфо:      mtproxy info
+Удаление:  mtproxy uninstall
 
 ВАЖНО: Секреты сохраняются при перезапуске!
 Обновлено: $(date)
@@ -625,6 +695,7 @@ EOL
 }
 
 # Обработчик команд
+clear
 case "${1:-status}" in
     "start")
         echo -e "${YELLOW}Запуск сервиса MTProxy...${NC}"
@@ -710,6 +781,9 @@ case "${1:-status}" in
         else
             echo -e "${RED}❌ Не удалось определить порт из конфигурации сервиса${NC}"
         fi
+        ;;
+    "uninstall")
+        do_uninstall
         ;;
     "help"|"-h"|"--help")
         show_help
