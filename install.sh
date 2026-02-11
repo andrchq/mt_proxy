@@ -161,6 +161,16 @@ curl -s https://core.telegram.org/getProxyConfig -o $BASE_DIR/proxy-multi.conf
 
 # 8. Firewall
 print_step "Шаг 8: Настройка Firewall"
+# Проверка на занятость порта (Nginx/Apache?)
+if command -v ss > /dev/null; then
+    BUSY_SERVICE=$(ss -tlpn | grep ":$PROXY_PORT " | awk -F',' '{print $2}' | sed 's/\"//g')
+    if [ ! -z "$BUSY_SERVICE" ]; then
+        echo -e "${RED}ОШИБКА: Порт $PROXY_PORT уже занят службой: $BUSY_SERVICE${NC}"
+        echo -e "${YELLOW}Пожалуйста, остановите её (например, sudo systemctl stop $BUSY_SERVICE) или выберите другой порт.${NC}"
+        exit 1
+    fi
+fi
+
 if command -v ufw > /dev/null && systemctl is-active --quiet ufw; then
     ufw allow $PROXY_PORT/tcp
     echo -e "${GREEN}[UFW] Порт $PROXY_PORT открыт.${NC}"
@@ -195,6 +205,9 @@ Type=simple
 User=mtproxy
 Group=mtproxy
 WorkingDirectory=$BASE_DIR
+# Важно: Разрешаем бинд портов < 1024 для обычного пользователя
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 # Сохраняем переменные для Dashboard
 Environment="PORT=$PROXY_PORT"
 Environment="SECRET=$PROXY_SECRET"
@@ -213,6 +226,13 @@ systemctl restart $SERVICE_NAME
 
 # 10. Проверка порта
 print_step "Шаг 10: Проверка доступности из интернета"
+# Небольшая пауза, чтобы служба успела подняться
+sleep 2
+if ! systemctl is-active --quiet $SERVICE_NAME; then
+    echo -e "${RED}ОШИБКА: Служба MTProxy не смогла запуститься.${NC}"
+    echo -e "${YELLOW}Посмотрите причину командой: journalctl -u $SERVICE_NAME -n 50${NC}"
+fi
+
 if check_external_port $PROXY_PORT; then
     echo -e "${GREEN}УСПЕХ: Порт $PROXY_PORT доступен извне!${NC}"
 else
