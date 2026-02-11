@@ -79,6 +79,20 @@ PROXY_PORT=${PROXY_PORT:-443}
 read -p "Укажите домен (для ссылок) [оставьте пустым для $SERVER_IP]: " PROXY_DOMAIN < /dev/tty
 PROXY_ADDR=${PROXY_DOMAIN:-$SERVER_IP}
 
+if [ ! -z "$PROXY_DOMAIN" ]; then
+    echo -n "Проверка DNS для $PROXY_DOMAIN... "
+    DOMAIN_IP=$(getent hosts "$PROXY_DOMAIN" | awk '{print $1}' | head -n 1)
+    if [ "$DOMAIN_IP" == "$SERVER_IP" ]; then
+        echo -e "${GREEN}OK${NC}"
+    elif [ -z "$DOMAIN_IP" ]; then
+        echo -e "${RED}НЕ ОПРЕДЕЛЕН${NC}"
+        echo -e "${YELLOW}⚠️  ВНИМАНИЕ: Домен пока не указывает ни на какой IP. Проверьте A-запись.${NC}"
+    else
+        echo -e "${YELLOW}WARNING${NC}"
+        echo -e "${YELLOW}⚠️  ВНИМАНИЕ: Домен указывает на $DOMAIN_IP, а IP сервера $SERVER_IP${NC}"
+    fi
+fi
+
 # 6. Выбор домена маскировки (пинги как в v1.2)
 print_step "Шаг 4: Настройка Fake TLS маскировки"
 TLS_DOMAINS=("google.com" "facebook.com" "cloudflare.com" "microsoft.com" "apple.com" "netflix.com")
