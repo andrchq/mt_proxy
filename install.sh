@@ -105,14 +105,20 @@ if [ "$TAG_CHOICE" == "1" ]; then
 fi
 
 # 3. Установка зависимостей
-print_step "Шаг 3: Установка зависимостей"
+print_step "Шаг 3: Установка базовых инструментов (git, curl, make)"
 apt-get update
-# Фикс конфликта ufw и iptables-persistent: устанавливаем по отдельности
-apt-get install -y git curl build-essential libssl-dev zlib1g-dev xxd make gcc g++
-if command -v ufw > /dev/null; then
-    echo "UFW уже установлен, пропускаем установку iptables-persistent во избежание конфликтов."
+apt-get install -y git curl build-essential make gcc g++ xxd libssl-dev zlib1g-dev
+
+print_step "Шаг 3.1: Настройка Firewall (безопасная установка)"
+# Пытаемся установить ufw, если его нет
+apt-get install -y ufw
+
+# Проверяем наличие ufw перед установкой более низкоуровневых штук
+if command -v ufw > /dev/null && systemctl is-active --quiet ufw; then
+    echo -e "${GREEN}UFW активен. Использование iptables-persistent пропущено для предотвращения конфликтов.${NC}"
 else
-    apt-get install -y iptables-persistent
+    # Если UFW нет или он выключен, пробуем поставить классику
+    apt-get install -y iptables-persistent || echo -e "${YELLOW}Предупреждение: Не удалось установить iptables-persistent, используем системные правила.${NC}"
 fi
 
 # 4. Компиляция
