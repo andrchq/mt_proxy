@@ -38,7 +38,7 @@ print_step() {
 
 # 1. Приветствие и очистка
 clear
-print_banner "Установка Telegram MTProxy (Professional v2.1)"
+print_banner "Установка Telegram MTProxy"
 
 # 2. Деинсталляция старой версии (нативной)
 if systemctl is-active --quiet $OLD_SERVICE; then
@@ -111,27 +111,59 @@ done
 read -p "Домен маскировки [по умолчанию $BEST_DOMAIN]: " TLS_DOMAIN < /dev/tty
 TLS_DOMAIN=${TLS_DOMAIN:-$BEST_DOMAIN}
 
-read -p "AD TAG (hex) [пусто для настройки позже]: " AD_TAG < /dev/tty
+# 7. Продвижение канала
+print_step "Шаг 5: Настройка продвижения (AD TAG)"
+echo -e "${YELLOW}Подсказка:${NC} Чтобы ваш канал отображался у пользователей прокси, "
+echo -e "зарегистрируйте прокси в ${BOLD}@MTProxybot${NC} и получите ${BOLD}AD TAG${NC}."
+echo -e "Если у вас его пока нет, просто нажмите Enter (можно добавить позже).\n"
+read -p "Введите AD TAG (hex): " AD_TAG < /dev/tty
 
-# 7. Запуск MTG
-print_step "Шаг 5: Развертывание прокси (Docker)"
+# 8. Запуск MTG
+print_step "Шаг 6: Развертывание прокси (Docker)"
 mkdir -p $BASE_DIR
 
-echo -n "Получение образа 9seconds/mtg... "
-docker pull 9seconds/mtg:2 &>/dev/null
-echo -e "${GREEN}OK${NC}"
+IMAGE="9seconds/mtg:stable"
+MIRRORS=("dockerhub.timeweb.cloud" "dockerhub1.beget.com" "cr.yandex/mirror")
+
+echo "Получение образа $IMAGE..."
+SUCCESS=0
+
+# Пробуем прямой pull
+if docker pull $IMAGE; then
+    SUCCESS=1
+else
+    echo -e "${YELLOW}Прямой доступ к Docker Hub ограничен. Пробую зеркала...${NC}"
+    for mirror in "${MIRRORS[@]}"; do
+        echo -n "Проверка $mirror... "
+        if docker pull $mirror/$IMAGE; then
+            docker tag $mirror/$IMAGE $IMAGE
+            echo -e "${GREEN}OK${NC}"
+            SUCCESS=1
+            break
+        else
+            echo -e "${RED}FAIL${NC}"
+        fi
+    done
+fi
+
+if [ $SUCCESS -eq 0 ]; then
+    echo -e "${RED}❌ Ошибка: Не удалось загрузить образ Docker. Docker Hub заблокирован, и зеркала недоступны.${NC}"
+    exit 1
+fi
 
 echo -n "Генерация секретного ключа... "
-# mtg v2 generate-secret syntax
-SECRET=$(docker run --rm 9seconds/mtg:2 generate-secret -c $TLS_DOMAIN 2>/dev/null | tail -n 1)
+SECRET=$(docker run --rm $IMAGE generate-secret -c $TLS_DOMAIN 2>/dev/null | tail -n 1)
 if [[ -z "$SECRET" ]]; then
-    # Fallback если API изменилось
     SECRET="ee$(head -c 16 /dev/urandom | xxd -ps | tr -d '\n')$(echo -n "$TLS_DOMAIN" | xxd -ps | tr -d '\n')"
 fi
 echo -e "${GREEN}Готово${NC}"
 
-echo -n "Запуск контейнера mtp_proxy... "
+echo -n "Освобождение порта $PROXY_PORT... "
 docker rm -f mtp_proxy &>/dev/null
+fuser -k $PROXY_PORT/tcp &>/dev/null
+echo -e "${GREEN}OK${NC}"
+
+echo -n "Запуск контейнера mtp_proxy... "
 TAG_ARG=""
 [[ ! -z "$AD_TAG" ]] && TAG_ARG="-t $AD_TAG"
 
@@ -144,17 +176,24 @@ docker run -d \
   -e TLS_DOMAIN="$TLS_DOMAIN" \
   -e ADDR="$PROXY_ADDR" \
   -e PORT="$PROXY_PORT" \
-  9seconds/mtg:2 run $SECRET $TAG_ARG &>/dev/null
-echo -e "${GREEN}Служба запущена${NC}"
+  $IMAGE run $SECRET $TAG_ARG
 
-# 8. Firewall
-print_step "Шаг 6: Настройка доступа"
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}Служба запущена успешно!${NC}"
+else
+    echo -e "${RED}Ошибка при запуске контейнера.${NC}"
+    exit 1
+fi
+
+# 9. Firewall
+print_step "Шаг 7: Настройка доступа"
 echo -n "Открытие порта $PROXY_PORT... "
 if command -v ufw > /dev/null && systemctl is-active --quiet ufw; then ufw allow $PROXY_PORT/tcp &>/dev/null; fi
 iptables -I INPUT -p tcp --dport $PROXY_PORT -j ACCEPT 2>/dev/null
 echo -e "${GREEN}OK${NC}"
 
-# 9. Создание CLI (mtp)
+# 10. Создание CLI (mtp)
+print_step "Шаг 8: Глобальная команда управления"
 cat <<'EOF' > $CLI_PATH
 #!/bin/bash
 RED='\033[0;31m'
@@ -235,7 +274,7 @@ esac
 EOF
 chmod +x $CLI_PATH
 
-# 10. Финал
-print_step "Установка завершена успешно!"
+# 11. Финал
+print_step "Шаг 9: Установка завершена успешно!"
 sleep 2
 mtp
