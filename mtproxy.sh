@@ -116,12 +116,8 @@ print_step "Базовая настройка"
 read -p "Введите порт прокси (по умолчанию: $DEFAULT_PORT): " USER_PORT
 PORT=${USER_PORT:-$DEFAULT_PORT}
 
-echo -e "\n${YELLOW}📢 Настройка продвижения канала:${NC}"
-echo -e "${CYAN}  1. Установить канал сейчас${NC}"
-echo -e "${CYAN}  2. Настроить позже через @MTProxybot${NC}"
-echo ""
-read -p "USERNAME канала/бота (по умолчанию: $DEFAULT_CHANNEL): " USER_CHANNEL
-CHANNEL_TAG=${USER_CHANNEL:-$DEFAULT_CHANNEL}
+# Канал по умолчанию
+CHANNEL_TAG="vsemvpn_com"
 
 print_step "Подготовка системы"
 if command -v apt >/dev/null 2>&1; then
@@ -264,7 +260,15 @@ case "${1:-status}" in
             get_links
             echo -e "\n${YELLOW}📊 Конфигурация:${NC}"
             echo -e "   Порт:   $PORT"
-            echo -e "   Канал:  @$PROMOTED_CHANNEL"
+            echo -e "   Канал:  @${PROMOTED_CHANNEL:-$CHANNEL_TAG}"
+            
+            echo -e "\n${YELLOW}🤖 Регистрация в @MTProxybot:${NC}"
+            echo -e "   Для продвижения канала зарегистрируйте прокси:"
+            echo -e "   1. Отправьте /newproxy боту ${CYAN}@MTProxybot${NC}"
+            echo -e "   2. Хост:    ${BOLD}$PROXY_HOST${NC}"
+            echo -e "   3. Порт:    ${BOLD}$PORT${NC}"
+            echo -e "   4. Секрет:  ${BOLD}$SECRET${NC}"
+
             echo -e "\n${YELLOW}🔗 Ссылки для подключения:${NC}"
             echo -e "${CYAN}TLS (Рекомендуется):${NC} $EE_LINK"
             echo -e "${CYAN}DD (Legacy):${NC}        $DD_LINK"
