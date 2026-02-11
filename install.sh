@@ -121,11 +121,12 @@ cd $BASE_DIR
 
 # Генерация секрета
 echo -n "Генерация секретного ключа... "
-SECRET=$(head -c 16 /dev/urandom | xxd -ps | tr -d '\n')
-SECRET="ee${SECRET}$(echo -n "$TLS_DOMAIN" | xxd -ps | tr -d '\n')"
+RAW_SECRET=$(head -c 16 /dev/urandom | xxd -ps | tr -d '\n')
+# Для ссылки Telegram: ee + secret + hex_domain
+FULL_SECRET="ee${RAW_SECRET}$(echo -n "$TLS_DOMAIN" | xxd -ps | tr -d '\n')"
 echo -e "${GREEN}Готово${NC}"
 
-# Создание Dockerfile (используем зеркала для базового образа)
+# Создание Dockerfile
 cat <<EOF > Dockerfile
 FROM python:3.9-slim
 WORKDIR /app
@@ -135,11 +136,11 @@ EXPOSE 3128
 CMD ["python3", "mtprotoproxy.py"]
 EOF
 
-# Создание конфига
+# Создание конфига (alexbers требует 32 hex chars для USERS)
 cat <<EOF > config.py
 PORT = 3128
 USERS = {
-    "tg": "$SECRET"
+    "tg": "$RAW_SECRET"
 }
 AD_TAG = "${AD_TAG:-""}"
 TLS_DOMAIN = "$TLS_DOMAIN"
@@ -163,7 +164,7 @@ docker run -d \
   -v $BASE_DIR/config.py:/app/config.py:ro \
   -e ADDR="$PROXY_ADDR" \
   -e PORT="$PROXY_PORT" \
-  -e SECRET="$SECRET" \
+  -e SECRET="$FULL_SECRET" \
   -e TLS_DOMAIN="$TLS_DOMAIN" \
   -e TAG="$AD_TAG" \
   mtp-custom &>/dev/null
@@ -230,12 +231,13 @@ case "$1" in
         ADDR=$(echo "$C" | grep -oP '(?<="ADDR=)[^"]+')
         TAG=$(echo "$C" | grep -oP '(?<="TAG=)[^"]+')
         PORT=$(echo "$C" | grep -oP '(?<="PORT=)[^"]+')
-        NS="ee$(head -c 16 /dev/urandom | xxd -ps | tr -d '\n')$(echo -n "$NEW_DOM" | xxd -ps | tr -d '\n')"
+        RS=$(head -c 16 /dev/urandom | xxd -ps | tr -d '\n')
+        FS="ee${RS}$(echo -n "$NEW_DOM" | xxd -ps | tr -d '\n')"
         
         # Обновляем конфиг
         cat <<ECONTF > /opt/mtp/config.py
 PORT = 3128
-USERS = {"tg": "$NS"}
+USERS = {"tg": "$RS"}
 AD_TAG = "$TAG"
 TLS_DOMAIN = "$NEW_DOM"
 ECONTF
@@ -244,7 +246,7 @@ ECONTF
         # Обновляем ENV для dashboard
         docker rm -f mtp_proxy &>/dev/null
         docker run -d --name mtp_proxy --restart always -p $PORT:3128 -v /opt/mtp/config.py:/app/config.py:ro \
-          -e ADDR="$ADDR" -e PORT="$PROXY_PORT" -e SECRET="$NS" -e TLS_DOMAIN="$NEW_DOM" -e TAG="$TAG" mtp-custom &>/dev/null
+          -e ADDR="$ADDR" -e PORT="$PROXY_PORT" -e SECRET="$FS" -e TLS_DOMAIN="$NEW_DOM" -e TAG="$TAG" mtp-custom &>/dev/null
         
         echo -e "${GREEN}Маскировка изменена на $NEW_DOM.${NC}"
         /usr/local/bin/mtp
