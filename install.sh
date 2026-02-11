@@ -202,12 +202,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=mtproxy
-Group=mtproxy
+# Запускаем от root, чтобы занять порт 443
+# Процесс сам сбросит права до mtproxy благодаря флагу -u в ExecStart
 WorkingDirectory=$BASE_DIR
-# Важно: Разрешаем бинд портов < 1024 для обычного пользователя
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 # Сохраняем переменные для Dashboard
 Environment="PORT=$PROXY_PORT"
 Environment="SECRET=$PROXY_SECRET"
