@@ -41,16 +41,17 @@ print_step() {
 
 check_external_port() {
     local port=$1
-    local res=$(curl -s --max-time 5 "https://port-check.io/api?port=$port")
-    if [[ "$res" == *"open"* ]]; then return 0; fi
-    local res2=$(curl -s --max-time 5 "https://api.hackertarget.com/nmap/?q=$(curl -s https://api.ipify.org)&p=$port")
-    if [[ "$res2" == *"open"* ]]; then return 0; fi
+    # Сервис TransmissionBT: возвращает 1 если открыт, 0 если закрыт
+    local res=$(curl -s --max-time 10 "http://portcheck.transmissionbt.com/$port")
+    if [[ "$res" == "1" ]]; then
+        return 0
+    fi
     return 1
 }
 
 # Очистка экрана и приветствие
 clear
-print_banner "Установка Telegram MTProxy"
+print_banner "Установка Telegram MTProxy (v1.2 - 11.02.2026)"
 
 # 1. Диагностика сети
 print_step "Шаг 1: Диагностика сети до серверов Telegram"
@@ -179,27 +180,34 @@ cp objs/bin/mtproto-proxy $BIN_PATH
 
 # 6. Генерация секрета
 print_step "Шаг 6: Генерация ключей"
+echo -n "Создание секретного ключа... "
 # Основной секрет (16 байт)
 RAW_SECRET=$(head -c 16 /dev/urandom | xxd -ps | tr '[:lower:]' '[:upper:]')
 # TLS секрет (ee + secret + hex(domain))
 DOMAIN_HEX=$(echo -n "$TLS_DOMAIN" | xxd -ps | tr '[:lower:]' '[:upper:]')
 PROXY_SECRET="EE${RAW_SECRET}${DOMAIN_HEX}"
+echo -e "${GREEN}Готово${NC}"
 
 # 7. Системная настройка
 print_step "Шаг 7: Системная настройка"
+echo -n "Создание пользователя и прав... "
 id -u mtproxy &>/dev/null || useradd -r -M -s /bin/false mtproxy
 chown -R mtproxy:mtproxy $BASE_DIR
 chmod +x $BIN_PATH
+echo -e "${GREEN}OK${NC}"
+
+echo -n "Загрузка конфигурации Telegram... "
 curl -s https://core.telegram.org/getProxySecret -o $BASE_DIR/proxy-secret
 curl -s https://core.telegram.org/getProxyConfig -o $BASE_DIR/proxy-multi.conf
+echo -e "${GREEN}OK${NC}"
 
 # 8. Firewall
 print_step "Шаг 8: Настройка доступа"
+echo -n "Проверка портов и Firewall... "
 if command -v ss > /dev/null; then
     BUSY_SERVICE=$(ss -tlpn | grep ":$PROXY_PORT " | awk -F',' '{print $2}' | sed 's/\"//g')
     if [ ! -z "$BUSY_SERVICE" ]; then
-        echo -e "${RED}ВНИМАНИЕ: Порт $PROXY_PORT занят: $BUSY_SERVICE${NC}"
-        echo -e "Установка будет продолжена, но прокси может не запуститься."
+        echo -e "\n${RED}ВНИМАНИЕ: Порт $PROXY_PORT занят: $BUSY_SERVICE${NC}"
     fi
 fi
 
@@ -210,9 +218,11 @@ iptables -I INPUT -p tcp --dport $PROXY_PORT -j ACCEPT 2>/dev/null
 if command -v netfilter-persistent > /dev/null; then
     netfilter-persistent save &>/dev/null
 fi
+echo -e "${GREEN}Готово${NC}"
 
 # 9. Systemd
 print_step "Шаг 9: Создание службы"
+echo -n "Конфигурация unit-файла... "
 TAG_ARG=""
 [[ ! -z "$AD_TAG" ]] && TAG_ARG="-P $AD_TAG"
 
@@ -240,6 +250,7 @@ EOF
 systemctl daemon-reload
 systemctl enable $SERVICE_NAME &>/dev/null
 systemctl restart $SERVICE_NAME
+echo -e "${GREEN}Служба запущена${NC}"
 
 # 10. CLI Команда
 cat <<'EOF' > $CLI_PATH
@@ -276,13 +287,13 @@ show_dashboard() {
     echo -e "  ${BOLD}Маскировка:${NC} ${BLUE}$TLS_DOM${NC}"
     echo -e "  ${BOLD}Канал (AD TAG):${NC} ${PURPLE}${TAG:-"(не задан)"}${NC}"
     
-    echo -e "\n  ${BOLD}${CYAN}� ПРЯМЫЕ ССЫЛКИ (Для приложения)${NC}"
+    echo -e "\n  ${BOLD}${CYAN}[APP] ПРЯМЫЕ ССЫЛКИ (Для приложения)${NC}"
     echo -e "  ${CYAN}─────────────────────────────────────────────────────────────${NC}"
     echo -e "  🔹 TLS (Рекомендуется): ${BLUE}tg://proxy?server=$ADDR&port=$PORT&secret=ee${SECRET}$(echo -n "$TLS_DOM" | xxd -ps | tr '[:lower:]' '[:upper:]')${NC}"
     echo -e "  🔹 Обычная:             ${BLUE}tg://proxy?server=$ADDR&port=$PORT&secret=$SECRET${NC}"
     echo -e "  🔹 Legacy (DD):         ${BLUE}tg://proxy?server=$ADDR&port=$PORT&secret=dd$SECRET${NC}"
     
-    echo -e "\n  ${BOLD}${CYAN}🌐 ВЕБ-ССЫЛКИ (Для браузера)${NC}"
+    echo -e "\n  ${BOLD}${CYAN}[WEB] ВЕБ-ССЫЛКИ (Для браузера)${NC}"
     echo -e "  ${CYAN}─────────────────────────────────────────────────────────────${NC}"
     echo -e "  🔸 Ссылка: ${BLUE}https://t.me/proxy?server=$ADDR&port=$PORT&secret=ee${SECRET}$(echo -n "$TLS_DOM" | xxd -ps | tr '[:lower:]' '[:upper:]')${NC}"
     
@@ -299,8 +310,17 @@ case "$1" in
     status) systemctl status mtproxy ;;
     check)
         PORT=$(grep -oP '(?<=Environment="PORT=)[^"]+' "/etc/systemd/system/mtproxy.service" | head -1)
-        echo "Проверка доступности порта $PORT..."
-        curl -s --max-time 10 "https://port-check.io/api?port=$PORT" | grep -q "open" && echo -e "${GREEN}Порт открыт!${NC}" || echo -e "${RED}Порт закрыт!${NC}"
+        echo "Проверка доступности порта $PORT из интернета..."
+        
+        # Используем TransmissionBT сервис
+        RES=$(curl -s --max-time 10 "http://portcheck.transmissionbt.com/$PORT")
+
+        if [ "$RES" == "1" ]; then
+            echo -e "${GREEN}✅ Порт открыт! Ваш прокси виден миру.${NC}"
+        else
+            echo -e "${RED}❌ Порт закрыт!${NC}"
+            echo -e "${YELLOW}Проверьте Firewall в панели хостинга и настройки сервера.${NC}"
+        fi
         ;;
     uninstall)
         read -p "Удалить MTProxy полностью? [y/N]: " conf < /dev/tty
