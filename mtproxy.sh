@@ -25,9 +25,22 @@ print_header() {
     echo -e "${color}╚════════════════════════════════════════════════════════════╝${NC}"
 }
 
-# Функция для вывода этапа
+# Функция для вывода этапа в читаемом виде
 print_step() {
-    echo -e "\n${CYAN}--- [ $1 ] ---${NC}"
+    local number="$1"
+    local title="$2"
+    echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}${BOLD}ЭТАП ${number}.${NC} ${BOLD}${title}${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+}
+
+# Вопрос с дефолтным значением: Enter принимает значение по умолчанию
+ask_with_default() {
+    local prompt="$1"
+    local default_value="$2"
+    local result
+    read -p "${prompt} [Enter = ${default_value}]: " result </dev/tty
+    echo "${result:-$default_value}"
 }
 
 clear
@@ -56,14 +69,14 @@ if [[ "$1" == "uninstall" ]]; then
     echo -e "  • Все конфигурационные файлы и секреты"
     echo ""
     
-    read -p "Вы уверены, что хотите продолжить? (введите 'YES' для подтверждения): " CONFIRM </dev/tty
+    read -p "Вы уверены, что хотите продолжить? [введите YES для подтверждения, Enter = отмена]: " CONFIRM </dev/tty
     
     if [[ "$CONFIRM" != "YES" ]]; then
         echo -e "${GREEN}Удаление отменено.${NC}"
         exit 0
     fi
     
-    print_step "Остановка и удаление компонентов"
+    print_step "U1" "Остановка и удаление компонентов"
     
     if systemctl is-active --quiet mtproxy; then
         echo -e "${YELLOW}Остановка сервиса MTProxy...${NC}"
@@ -107,31 +120,37 @@ fi
 print_header "УСТАНОВКА MTProxy" "${BLUE}"
 
 # Конфигурация
-INSTALL_DIR="/opt/MTProxy"
-SERVICE_NAME="mtproxy"
+INSTALL_DIR="/opt/mtproxy"
+SERVICE_NAME="mtp"
 DEFAULT_PORT=9443
-DEFAULT_CHANNEL="vsemvpn_com"
+DEFAULT_CHANNEL="prstalink"
 
-print_step "Этап 1: Базовая настройка"
-read -p "Введите порт прокси (по умолчанию: $DEFAULT_PORT): " USER_PORT </dev/tty
-PORT=${USER_PORT:-$DEFAULT_PORT}
+print_step "1" "Базовая настройка"
+PORT=$(ask_with_default "Введите порт прокси" "$DEFAULT_PORT")
+if ! [[ "$PORT" =~ ^[0-9]+$ ]] || ((PORT < 1 || PORT > 65535)); then
+    echo -e "${RED}Некорректный порт: $PORT. Допустимы значения 1-65535.${NC}"
+    exit 1
+fi
 
 # Канал по умолчанию
-CHANNEL_TAG="vsemvpn_com"
+CHANNEL_TAG="$DEFAULT_CHANNEL"
 
-print_step "Этап 2: Подготовка системы"
+print_step "2" "Подготовка системы"
 if command -v apt >/dev/null 2>&1; then
     echo -e "${YELLOW}Обновление пакетов и установка зависимостей...${NC}"
     apt update -qq
-    apt install -y git curl python3 python3-pip xxd || apt install -y vim-common
+    apt install -y git curl python3 python3-pip vim-common
 else
     echo -e "${RED}apt не найден. Установите зависимости вручную: git, curl, python3, xxd.${NC}"
     exit 1
 fi
 
-print_step "Этап 3: Установка файлов"
-mkdir -p $INSTALL_DIR
-cd $INSTALL_DIR
+print_step "3" "Установка файлов"
+mkdir -p "$INSTALL_DIR"
+cd "$INSTALL_DIR" || {
+    echo -e "${RED}Не удалось перейти в директорию $INSTALL_DIR${NC}"
+    exit 1
+}
 systemctl stop mtproxy 2>/dev/null
 
 echo -e "${YELLOW}Загрузка Python MTProxy...${NC}"
@@ -143,9 +162,9 @@ else
     exit 1
 fi
 
-print_step "Этап 4: Безопасность и Сеть"
-if [[ -f "/opt/MTProxy/info.txt" ]] && grep -q "Base Secret:" /opt/MTProxy/info.txt; then
-    USER_SECRET=$(grep "Base Secret:" /opt/MTProxy/info.txt | awk '{print $3}')
+print_step "4" "Безопасность и сеть"
+if [[ -f "$INSTALL_DIR/info.txt" ]] && grep -q "Base Secret:" "$INSTALL_DIR/info.txt"; then
+    USER_SECRET=$(grep -m1 "Base Secret:" "$INSTALL_DIR/info.txt" | awk '{print $3}')
     echo -e "${GREEN}Используется прежний секрет: $USER_SECRET${NC}"
 else
     USER_SECRET=$(head -c 16 /dev/urandom | xxd -ps)
@@ -162,19 +181,17 @@ done
 [[ -z "$EXTERNAL_IP" ]] && EXTERNAL_IP="YOUR_SERVER_IP"
 echo -e "${GREEN}Ваш IP: $EXTERNAL_IP${NC}"
 
-print_step "Этап 5: Конфигурация домена"
-echo -e "${CYAN}Вы можете указать доменное имя (например, proxy.example.com)${NC}"
-read -p "Введите домен (пусто для IP): " USER_DOMAIN </dev/tty
-PROXY_HOST=${USER_DOMAIN:-$EXTERNAL_IP}
+print_step "5" "Конфигурация домена"
+echo -e "${CYAN}Вы можете указать доменное имя (например, proxy.example.com).${NC}"
+PROXY_HOST=$(ask_with_default "Введите домен или IP хоста прокси" "$EXTERNAL_IP")
 
-print_step "Этап 6: Настройка TLS-маскировки"
+print_step "6" "Настройка TLS-маскировки"
 TLS_DOMAINS=("github.com" "cloudflare.com" "microsoft.com" "amazon.com" "wikipedia.org" "reddit.com")
 RANDOM_DOMAIN=${TLS_DOMAINS[$RANDOM % ${#TLS_DOMAINS[@]}]}
-read -p "TLS-домен для маскировки (по умолчанию: $RANDOM_DOMAIN): " USER_TLS_DOMAIN </dev/tty
-TLS_DOMAIN=${USER_TLS_DOMAIN:-$RANDOM_DOMAIN}
+TLS_DOMAIN=$(ask_with_default "TLS-домен для маскировки" "$RANDOM_DOMAIN")
 echo -e "${GREEN}Используется маскировка под: $TLS_DOMAIN${NC}"
 
-print_step "Этап 7: Создание системного сервиса"
+print_step "7" "Создание systemd-сервиса"
 cat > "/etc/systemd/system/$SERVICE_NAME.service" << EOL
 [Unit]
 Description=MTProxy Telegram Proxy
@@ -198,12 +215,28 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 EOL
 
+DOMAIN_HEX=$(echo -n "$TLS_DOMAIN" | xxd -p | tr -d '\n')
+cat > "$INSTALL_DIR/info.txt" << EOL
+MTProxy Installation Information
+===============================
+Дата установки: $(date '+%Y-%m-%d %H:%M:%S')
+Хост прокси: $PROXY_HOST
+Порт: $PORT
+Base Secret: $USER_SECRET
+TLS Domain: $TLS_DOMAIN
+
+Ссылки подключения:
+TLS (ee): tg://proxy?server=$PROXY_HOST&port=$PORT&secret=ee${USER_SECRET}${DOMAIN_HEX}
+DD (dd):  tg://proxy?server=$PROXY_HOST&port=$PORT&secret=dd${USER_SECRET}
+Plain:    tg://proxy?server=$PROXY_HOST&port=$PORT&secret=${USER_SECRET}
+EOL
+
 # Настройка файрвола
 if command -v ufw &> /dev/null && ufw status | grep -q "Status: active"; then
-    ufw allow $PORT/tcp >/dev/null
+    ufw allow "$PORT"/tcp >/dev/null
 fi
 
-print_step "Завершение: Утилита управления"
+print_step "8" "Создание утилиты управления"
 cat > "/tmp/mtproxy_utility" << 'UTILITY_EOF'
 #!/bin/bash
 RED='\033[0;31m'
@@ -215,6 +248,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 INSTALL_DIR="/opt/MTProxy"
 SERVICE_NAME="mtproxy"
+CHANNEL_TAG="vsemvpn_com"
 
 print_header() {
     local title="$1"
@@ -228,10 +262,10 @@ domain_to_hex() { echo -n "$1" | xxd -p | tr -d '\n'; }
 
 get_service_config() {
     if [[ -f "/etc/systemd/system/$SERVICE_NAME.service" ]]; then
-        EXEC_START=$(grep "ExecStart=" "/etc/systemd/system/$SERVICE_NAME.service" | cut -d'=' -f2-)
+        EXEC_START=$(grep -m1 "^ExecStart=" "/etc/systemd/system/$SERVICE_NAME.service" | cut -d'=' -f2-)
         PORT=$(echo "$EXEC_START" | awk '{print $(NF-1)}')
         SECRET=$(echo "$EXEC_START" | awk '{print $NF}')
-        PROMOTED_CHANNEL=$(grep "Environment=TAG=" "/etc/systemd/system/$SERVICE_NAME.service" | cut -d'=' -f3)
+        PROMOTED_CHANNEL=$(grep -m1 "^Environment=TAG=" "/etc/systemd/system/$SERVICE_NAME.service" | cut -d'=' -f3)
     fi
 }
 
@@ -239,11 +273,13 @@ get_links() {
     get_service_config
     # Детекция хоста
     if [[ -f "$INSTALL_DIR/info.txt" ]]; then
-        PROXY_HOST=$(grep "Хост прокси:" "$INSTALL_DIR/info.txt" | awk '{print $3}')
+        PROXY_HOST=$(grep -m1 "Хост прокси:" "$INSTALL_DIR/info.txt" | awk '{print $3}')
     fi
     [[ -z "$PROXY_HOST" ]] && PROXY_HOST=$(curl -4 -s ifconfig.me)
     
-    TLS_DOMAIN=$(grep "Environment=TLS_DOMAIN=" /etc/systemd/system/mtproxy.service | cut -d'=' -f3)
+    if [[ -f "/etc/systemd/system/mtproxy.service" ]]; then
+        TLS_DOMAIN=$(grep -m1 "^Environment=TLS_DOMAIN=" /etc/systemd/system/mtproxy.service | cut -d'=' -f3)
+    fi
     TLS_HEX=$(domain_to_hex "${TLS_DOMAIN:-github.com}")
     
     PLAIN_LINK="tg://proxy?server=$PROXY_HOST&port=$PORT&secret=${SECRET}"
@@ -255,7 +291,7 @@ case "${1:-status}" in
     "status")
         clear
         print_header "СТАТУС MTProxy" "${BLUE}"
-        if systemctl is-active --quiet $SERVICE_NAME; then
+        if systemctl is-active --quiet "$SERVICE_NAME"; then
             echo -e "${GREEN}✅ Сервис: Активен и работает${NC}"
             get_links
             echo -e "\n${YELLOW}📊 Конфигурация:${NC}"
@@ -280,7 +316,7 @@ case "${1:-status}" in
     "start"|"stop"|"restart")
         clear
         print_header "КОМАНДА: $1" "${YELLOW}"
-        systemctl $1 $SERVICE_NAME
+        systemctl "$1" "$SERVICE_NAME"
         echo -e "${GREEN}Команда выполнена успешно.${NC}"
         ;;
     "links")
@@ -292,14 +328,14 @@ case "${1:-status}" in
     "logs")
         clear
         print_header "ЛОГИ MTProxy" "${YELLOW}"
-        journalctl -u $SERVICE_NAME -f
+        journalctl -u "$SERVICE_NAME" -f
         ;;
     "uninstall")
         clear
         print_header "УДАЛЕНИЕ MTProxy" "${RED}"
         read -p "Вы уверены? (введите 'YES' для подтверждения): " CONFIRM </dev/tty
         [[ "$CONFIRM" != "YES" ]] && exit 0
-        systemctl stop $SERVICE_NAME; systemctl disable $SERVICE_NAME
+        systemctl stop "$SERVICE_NAME"; systemctl disable "$SERVICE_NAME"
         rm -f "/etc/systemd/system/$SERVICE_NAME.service"
         rm -rf "$INSTALL_DIR"
         rm -f "/usr/local/bin/mtproxy"
@@ -317,10 +353,10 @@ UTILITY_EOF
 mv "/tmp/mtproxy_utility" "/usr/local/bin/mtproxy"
 chmod +x "/usr/local/bin/mtproxy"
 
-print_step "Запуск сервиса"
+print_step "9" "Запуск сервиса"
 systemctl daemon-reload
-systemctl enable $SERVICE_NAME
-systemctl start $SERVICE_NAME
+systemctl enable "$SERVICE_NAME"
+systemctl start "$SERVICE_NAME"
 
 sleep 2
 clear
