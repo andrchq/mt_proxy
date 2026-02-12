@@ -43,6 +43,61 @@ ask_with_default() {
     echo "${result:-$default_value}"
 }
 
+# Функция для отображения последних 10 строк лога динамически
+run_live_log() {
+    local cmd="$1"
+    local log_file=$(mktemp)
+    local cols=$(tput cols 2>/dev/null || echo 80)
+    
+    # Запускаем команду в фоне, перенаправляя вывод в файл
+    eval "export DEBIAN_FRONTEND=noninteractive; $cmd" > "$log_file" 2>&1 &
+    local pid=$!
+    
+    # Резервируем 10 строк
+    for i in {1..10}; do echo; done
+    
+    # Цикл мониторинга
+    while kill -0 "$pid" 2>/dev/null; do
+        # Возвращаемся на 10 строк вверх
+        echo -ne "\033[10A"
+        
+        # Получаем последние 10 строк лога
+        local lines_content=$(tail -n 10 "$log_file")
+        
+        # Выводим строки, очищая каждую строку
+        local i=0
+        while IFS= read -r line; do
+            ((i++))
+            # Обрезаем строку по ширине терминала и очищаем остаток
+            printf "\033[K%s\n" "${line:0:$cols}"
+        done <<< "$lines_content"
+        
+        # Если строк меньше 10, заполняем пустотой
+        for ((j=i; j<10; j++)); do
+            echo -e "\033[K"
+        done
+        
+        sleep 0.1
+    done
+    
+    # Ожидаем завершения процесса для получения кода возврата
+    wait "$pid"
+    local ret=$?
+    
+    # Финальное обновление
+    echo -ne "\033[10A"
+    tail -n 10 "$log_file" | while IFS= read -r line; do
+        printf "\033[K%s\n" "${line:0:$cols}"
+    done
+    local lines_count=$(tail -n 10 "$log_file" | wc -l)
+    for ((j=lines_count; j<10; j++)); do
+        echo -e "\033[K"
+    done
+    
+    rm -f "$log_file"
+    return $ret
+}
+
 clear
 
 # Требуется root
@@ -123,7 +178,7 @@ print_header "УСТАНОВКА MTProxy" "${BLUE}"
 INSTALL_DIR="/opt/MTProxy"
 SERVICE_NAME="mtproxy"
 DEFAULT_PORT=9443
-DEFAULT_CHANNEL="vsemvpn_com"
+DEFAULT_CHANNEL="prsta_live"
 
 print_step "1" "Базовая настройка"
 PORT=$(ask_with_default "Введите порт прокси" "$DEFAULT_PORT")
@@ -132,20 +187,29 @@ if ! [[ "$PORT" =~ ^[0-9]+$ ]] || ((PORT < 1 || PORT > 65535)); then
     exit 1
 fi
 
-# Канал по умолчанию
-CHANNEL_TAG="$DEFAULT_CHANNEL"
 
-print_step "2" "Подготовка системы"
+# Канал для рекламы
+print_step "2" "Настройка рекламного канала"
+echo -e "${CYAN}Укажите канал для рекламы (вводите как prstalink, без @).${NC}"
+CHANNEL_TAG=$(ask_with_default "Введите тег канала" "$DEFAULT_CHANNEL")
+CHANNEL_TAG=${CHANNEL_TAG//@/} # Удаляем @ если пользователь ввел
+echo -e "${GREEN}Используется канал: @$CHANNEL_TAG${NC}"
+
+print_step "3" "Подготовка системы"
 if command -v apt >/dev/null 2>&1; then
-    echo -e "${YELLOW}Обновление пакетов и установка зависимостей...${NC}"
-    apt update -qq
-    apt install -y git curl python3 python3-pip vim-common
+    echo -e "${YELLOW}Обновление пакетов и установка зависимостей (это может занять время)...${NC}"
+    # Используем run_live_log для отображения процесса
+    run_live_log "apt-get update -qq && apt-get install -y git curl python3 python3-pip vim-common"
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Ошибка при установке зависимостей.${NC}"
+        exit 1
+    fi
 else
     echo -e "${RED}apt не найден. Установите зависимости вручную: git, curl, python3, xxd.${NC}"
     exit 1
 fi
 
-print_step "3" "Установка файлов"
+print_step "4" "Установка файлов"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR" || {
     echo -e "${RED}Не удалось перейти в директорию $INSTALL_DIR${NC}"
@@ -162,7 +226,7 @@ else
     exit 1
 fi
 
-print_step "4" "Безопасность и сеть"
+print_step "5" "Безопасность и сеть"
 if [[ -f "$INSTALL_DIR/info.txt" ]] && grep -q "Base Secret:" "$INSTALL_DIR/info.txt"; then
     USER_SECRET=$(grep -m1 "Base Secret:" "$INSTALL_DIR/info.txt" | awk '{print $3}')
     echo -e "${GREEN}Используется прежний секрет: $USER_SECRET${NC}"
@@ -181,17 +245,17 @@ done
 [[ -z "$EXTERNAL_IP" ]] && EXTERNAL_IP="YOUR_SERVER_IP"
 echo -e "${GREEN}Ваш IP: $EXTERNAL_IP${NC}"
 
-print_step "5" "Конфигурация домена"
+print_step "6" "Конфигурация домена"
 echo -e "${CYAN}Вы можете указать доменное имя (например, proxy.example.com).${NC}"
 PROXY_HOST=$(ask_with_default "Введите домен или IP хоста прокси" "$EXTERNAL_IP")
 
-print_step "6" "Настройка TLS-маскировки"
+print_step "7" "Настройка TLS-маскировки"
 TLS_DOMAINS=("github.com" "cloudflare.com" "microsoft.com" "amazon.com" "wikipedia.org" "reddit.com")
 RANDOM_DOMAIN=${TLS_DOMAINS[$RANDOM % ${#TLS_DOMAINS[@]}]}
 TLS_DOMAIN=$(ask_with_default "TLS-домен для маскировки" "$RANDOM_DOMAIN")
 echo -e "${GREEN}Используется маскировка под: $TLS_DOMAIN${NC}"
 
-print_step "7" "Создание systemd-сервиса"
+print_step "8" "Создание systemd-сервиса"
 cat > "/etc/systemd/system/$SERVICE_NAME.service" << EOL
 [Unit]
 Description=MTProxy Telegram Proxy
@@ -236,7 +300,7 @@ if command -v ufw &> /dev/null && ufw status | grep -q "Status: active"; then
     ufw allow "$PORT"/tcp >/dev/null
 fi
 
-print_step "8" "Создание утилиты управления"
+print_step "9" "Создание утилиты управления"
 cat > "/tmp/mtproxy_utility" << 'UTILITY_EOF'
 #!/bin/bash
 RED='\033[0;31m'
@@ -248,7 +312,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 INSTALL_DIR="/opt/MTProxy"
 SERVICE_NAME="mtproxy"
-CHANNEL_TAG="vsemvpn_com"
+CHANNEL_TAG="prsta_live"
 
 print_header() {
     local title="$1"
@@ -438,7 +502,7 @@ UTILITY_EOF
 mv "/tmp/mtproxy_utility" "/usr/local/bin/mtproxy"
 chmod +x "/usr/local/bin/mtproxy"
 
-print_step "9" "Запуск сервиса"
+print_step "10" "Запуск сервиса"
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 systemctl start "$SERVICE_NAME"
