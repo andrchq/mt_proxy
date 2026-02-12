@@ -120,10 +120,10 @@ fi
 print_header "УСТАНОВКА MTProxy" "${BLUE}"
 
 # Конфигурация
-INSTALL_DIR="/opt/MTProxy"
-SERVICE_NAME="mtproxy"
+INSTALL_DIR="/opt/mtproxy"
+SERVICE_NAME="mtp"
 DEFAULT_PORT=9443
-DEFAULT_CHANNEL="vsemvpn_com"
+DEFAULT_CHANNEL="prstalink"
 
 print_step "1" "Базовая настройка"
 PORT=$(ask_with_default "Введите порт прокси" "$DEFAULT_PORT")
