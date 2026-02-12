@@ -43,6 +43,77 @@ ask_with_default() {
     echo "${result:-$default_value}"
 }
 
+# Функция проверки сетевой доступности
+check_connectivity() {
+    print_header "ПРОВЕРКА ДОСТУПНОСТИ СЕТИ" "$CYAN"
+    
+    local telegram_status=0
+    local ru_success_count=0
+    local total_ru_services=5
+    
+    # 1. Проверка Telegram
+    echo -e "${YELLOW}Проверка доступности серверов Telegram...${NC}"
+    if curl -s -I --connect-timeout 5 "https://api.telegram.org" >/dev/null 2>&1; then
+        echo -e "${GREEN}✅ Telegram (api.telegram.org) доступен${NC}"
+        telegram_status=1
+    else
+        echo -e "${RED}❌ Telegram (api.telegram.org) недоступен${NC}"
+    fi
+
+    echo ""
+
+    # 2. Проверка сервисов РФ
+    echo -e "${YELLOW}Проверка доступности сервисов РФ ($total_ru_services шт.)...${NC}"
+    
+    # Список сервисов: Яндекс, Mail.ru, VK, OK, Rambler
+    local services=("https://ya.ru" "https://mail.ru" "https://vk.com" "https://ok.ru" "https://www.rambler.ru")
+    
+    for service in "${services[@]}"; do
+        local domain=$(echo "$service" | awk -F/ '{print $3}')
+        echo -ne "Проверка $domain ... "
+        
+        # Пробуем подключиться. Если код возврата 0 - успех (сайт ответил)
+        if curl -s --connect-timeout 5 "$service" >/dev/null 2>&1; then
+            echo -e "${GREEN}OK${NC}"
+            ((ru_success_count++))
+        else
+            echo -e "${RED}FAIL${NC}"
+        fi
+    done
+
+    echo ""
+    echo -e "${CYAN}Итог по РФ: $ru_success_count из $total_ru_services доступны${NC}"
+
+    # Логика принятия решения
+    # Если Telegram недоступен ИЛИ доступно менее 3 сервисов РФ
+    if [[ $telegram_status -eq 0 ]] || [[ $ru_success_count -lt 3 ]]; then
+        echo -e "\n${RED}⚠️  ВНИМАНИЕ: Обнаружены проблемы с сетью!${NC}"
+        
+        if [[ $telegram_status -eq 0 ]]; then
+            echo -e "${RED}- Серверы Telegram недоступны. Прокси может не работать корректно.${NC}"
+        fi
+        
+        if [[ $ru_success_count -lt 3 ]]; then
+             echo -e "${RED}- Большинство сервисов РФ недоступно (вероятно, IP заблокирован РКН).${NC}"
+             echo -e "${RED}- Это критично для MTProxy, который должен быть доступен из РФ.${NC}"
+        fi
+        
+        echo ""
+        echo -e "${YELLOW}Вы можете остановить скрипт или продолжить принудительно.${NC}"
+        read -p "Продолжить установку? (yes/no) [no]: " CONFIRM </dev/tty
+        CONFIRM=${CONFIRM:-no}
+        
+        if [[ "$CONFIRM" != "yes" ]]; then
+            echo -e "${RED}Установка отменена пользователем.${NC}"
+            exit 1
+        fi
+        echo -e "${YELLOW}Принудительное продолжение...${NC}"
+    else
+        echo -e "${GREEN}✅ Все проверки пройдены успешно (Telegram + РФ доступ).${NC}"
+    fi
+    echo ""
+}
+
 # Функция для отображения последних 10 строк лога динамически
 run_live_log() {
     local cmd="$1"
@@ -171,6 +242,9 @@ if [[ "$1" == "uninstall" ]]; then
     print_header "MTProxy УДАЛЕН" "${GREEN}"
     exit 0
 fi
+
+
+check_connectivity
 
 print_header "УСТАНОВКА MTProxy" "${BLUE}"
 
@@ -507,7 +581,13 @@ systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 systemctl start "$SERVICE_NAME"
 
-sleep 2
+
+
+
+echo -e "\n${CYAN}Нажмите Enter для завершения установки и открытия дашборда...${NC}"
+read -r _ </dev/tty
+
+sleep 1
 clear
 /usr/local/bin/mtproxy
 
