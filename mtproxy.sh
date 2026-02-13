@@ -325,32 +325,34 @@ PROXY_HOST=$(ask_with_default "Введите домен или IP хоста п
 
 # Проверка резолвинга домена
 if [[ "$PROXY_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    # Если введен IP
+    # Пользователь ввел IP
     if [[ "$PROXY_HOST" != "$EXTERNAL_IP" ]]; then
-         echo -e "${YELLOW}Предупреждение: Введенный IP ($PROXY_HOST) отличается от внешнего IP ($EXTERNAL_IP).${NC}"
+         echo -e "${YELLOW}Внимание: Введенный IP ($PROXY_HOST) отличается от определенного IP сервера ($EXTERNAL_IP).${NC}"
          read -p "Нажмите Enter для подтверждения использования введенного IP... " _ </dev/tty
+    else
+         echo -e "${GREEN}✅ Используем IP сервера: $PROXY_HOST${NC}"
     fi
 else
-    # Если введен домен
+    # Пользователь ввел домен
     echo -e "${YELLOW}Проверка A-записи для домена $PROXY_HOST...${NC}"
     RESOLVED_IP=$(python3 -c "import socket; print(socket.gethostbyname('$PROXY_HOST'))" 2>/dev/null)
 
     if [[ "$RESOLVED_IP" == "$EXTERNAL_IP" ]]; then
-        echo -e "${GREEN}✅ Успешно: Домен $PROXY_HOST направлен на этот сервер ($RESOLVED_IP).${NC}"
-        echo -e "${CYAN}Нажмите Enter для продолжения...${NC}"
-        read -r _ </dev/tty
+        echo -e "${GREEN}✅ Успешно: Домен направлен на этот сервер ($RESOLVED_IP).${NC}"
+        read -p "Нажмите Enter для продолжения..." _ </dev/tty
     else
-        echo -e "${RED}❌ Ошибка: Домен $PROXY_HOST резолвится в ${RESOLVED_IP:-'неизвестный IP'}, ожидался $EXTERNAL_IP.${NC}"
-        echo -e "${YELLOW}Для корректной работы прокси домен должен указывать на этот сервер.${NC}"
+        echo -e "${RED}❌ Ошибка: Домен $PROXY_HOST указывает на '${RESOLVED_IP:-неизвестно}', а не на $EXTERNAL_IP.${NC}"
+        echo -e "${YELLOW}Скрипт определил IP вашего сервера как: ${BOLD}$EXTERNAL_IP${NC}"
+        echo -e "Вы можете продолжить установку, используя этот IP."
         
-        read -p "Нажмите Enter, чтобы использовать IP ($EXTERNAL_IP), или введите 'stop' для выхода: " DECISION </dev/tty
+        read -p "Нажмите Enter для использования IP $EXTERNAL_IP (или введите 'stop' для выхода): " DECISION </dev/tty
         
         if [[ "${DECISION,,}" == "stop" ]]; then
-            echo -e "${RED}Установка остановлена пользователем.${NC}"
+            echo -e "${RED}Установка остановлена.${NC}"
             exit 1
         fi
         
-        echo -e "${GREEN}Будет использован IP адрес сервера: $EXTERNAL_IP${NC}"
+        echo -e "${GREEN}Переключаемся на использование IP: $EXTERNAL_IP${NC}"
         PROXY_HOST="$EXTERNAL_IP"
     fi
 fi
