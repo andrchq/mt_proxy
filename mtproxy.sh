@@ -323,6 +323,38 @@ print_step "6" "Конфигурация домена"
 echo -e "${CYAN}Вы можете указать доменное имя (например, proxy.example.com).${NC}"
 PROXY_HOST=$(ask_with_default "Введите домен или IP хоста прокси" "$EXTERNAL_IP")
 
+# Проверка резолвинга домена
+if [[ "$PROXY_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    # Если введен IP
+    if [[ "$PROXY_HOST" != "$EXTERNAL_IP" ]]; then
+         echo -e "${YELLOW}Предупреждение: Введенный IP ($PROXY_HOST) отличается от внешнего IP ($EXTERNAL_IP).${NC}"
+         read -p "Нажмите Enter для подтверждения использования введенного IP... " _ </dev/tty
+    fi
+else
+    # Если введен домен
+    echo -e "${YELLOW}Проверка A-записи для домена $PROXY_HOST...${NC}"
+    RESOLVED_IP=$(python3 -c "import socket; print(socket.gethostbyname('$PROXY_HOST'))" 2>/dev/null)
+
+    if [[ "$RESOLVED_IP" == "$EXTERNAL_IP" ]]; then
+        echo -e "${GREEN}✅ Успешно: Домен $PROXY_HOST направлен на этот сервер ($RESOLVED_IP).${NC}"
+        echo -e "${CYAN}Нажмите Enter для продолжения...${NC}"
+        read -r _ </dev/tty
+    else
+        echo -e "${RED}❌ Ошибка: Домен $PROXY_HOST резолвится в ${RESOLVED_IP:-'неизвестный IP'}, ожидался $EXTERNAL_IP.${NC}"
+        echo -e "${YELLOW}Для корректной работы прокси домен должен указывать на этот сервер.${NC}"
+        
+        read -p "Нажмите Enter, чтобы использовать IP ($EXTERNAL_IP), или введите 'stop' для выхода: " DECISION </dev/tty
+        
+        if [[ "${DECISION,,}" == "stop" ]]; then
+            echo -e "${RED}Установка остановлена пользователем.${NC}"
+            exit 1
+        fi
+        
+        echo -e "${GREEN}Будет использован IP адрес сервера: $EXTERNAL_IP${NC}"
+        PROXY_HOST="$EXTERNAL_IP"
+    fi
+fi
+
 print_step "7" "Настройка TLS-маскировки"
 TLS_DOMAINS=("github.com" "cloudflare.com" "microsoft.com" "amazon.com" "wikipedia.org" "reddit.com")
 RANDOM_DOMAIN=${TLS_DOMAINS[$RANDOM % ${#TLS_DOMAINS[@]}]}
