@@ -469,6 +469,9 @@ EXISTING_CHAT_ID=""
 if [[ -f "$INSTALL_DIR/info.txt" ]]; then
     EXISTING_BOT_TOKEN=$(grep -m1 "^Bot Token:" "$INSTALL_DIR/info.txt" 2>/dev/null | cut -d':' -f2- | sed 's/^ //')
     EXISTING_CHAT_ID=$(grep -m1 "^Chat ID:" "$INSTALL_DIR/info.txt" 2>/dev/null | cut -d':' -f2- | sed 's/^ //')
+    # Игнорируем значение "не установлен"
+    [[ "$EXISTING_BOT_TOKEN" == "не установлен" ]] && EXISTING_BOT_TOKEN=""
+    [[ "$EXISTING_CHAT_ID" == "не установлен" ]] && EXISTING_CHAT_ID=""
 fi
 
 if [[ -n "$EXISTING_BOT_TOKEN" ]]; then
@@ -1005,9 +1008,9 @@ if [[ -n "$BOT_TOKEN" ]] && [[ -n "$CHAT_ID" ]]; then
     if [[ "$PROXY_HOST" != "$EXTERNAL_IP" ]]; then
         # Есть домен — показываем и с доменом, и с IP
         TG_MSG+="${NL}🌐 <b>Ссылки с доменом (${PROXY_HOST}):</b>${NL}"
-        TG_MSG+="${NL}⭐ <b>TLS (рекомендуется):</b>${NL}<code>${TLS_LINK_MAIN}</code>${NL}"
-        TG_MSG+="${NL}🔵 <b>DD:</b>${NL}<code>${DD_LINK_MAIN}</code>${NL}"
-        TG_MSG+="${NL}⚪ <b>Обычная:</b>${NL}<code>${PLAIN_LINK_MAIN}</code>${NL}"
+        TG_MSG+="${NL}⭐ <b>TLS (рекомендуется):</b>${NL}${TLS_LINK_MAIN}${NL}"
+        TG_MSG+="${NL}🔵 <b>DD:</b>${NL}${DD_LINK_MAIN}${NL}"
+        TG_MSG+="${NL}⚪ <b>Обычная:</b>${NL}${PLAIN_LINK_MAIN}${NL}"
 
         # Ссылки с IP
         TLS_LINK_IP="tg://proxy?server=${EXTERNAL_IP}&port=${PORT}&secret=${EE_SECRET}"
@@ -1016,14 +1019,14 @@ if [[ -n "$BOT_TOKEN" ]] && [[ -n "$CHAT_ID" ]]; then
 
         TG_MSG+="${NL}─────────────────────────${NL}"
         TG_MSG+="${NL}📍 <b>Ссылки с IP (${EXTERNAL_IP}):</b>${NL}"
-        TG_MSG+="${NL}⭐ <b>TLS (рекомендуется):</b>${NL}<code>${TLS_LINK_IP}</code>${NL}"
-        TG_MSG+="${NL}🔵 <b>DD:</b>${NL}<code>${DD_LINK_IP}</code>${NL}"
-        TG_MSG+="${NL}⚪ <b>Обычная:</b>${NL}<code>${PLAIN_LINK_IP}</code>${NL}"
+        TG_MSG+="${NL}⭐ <b>TLS (рекомендуется):</b>${NL}${TLS_LINK_IP}${NL}"
+        TG_MSG+="${NL}🔵 <b>DD:</b>${NL}${DD_LINK_IP}${NL}"
+        TG_MSG+="${NL}⚪ <b>Обычная:</b>${NL}${PLAIN_LINK_IP}${NL}"
     else
         # Только IP
-        TG_MSG+="${NL}⭐ <b>TLS (рекомендуется):</b>${NL}<code>${TLS_LINK_MAIN}</code>${NL}"
-        TG_MSG+="${NL}🔵 <b>DD:</b>${NL}<code>${DD_LINK_MAIN}</code>${NL}"
-        TG_MSG+="${NL}⚪ <b>Обычная:</b>${NL}<code>${PLAIN_LINK_MAIN}</code>${NL}"
+        TG_MSG+="${NL}⭐ <b>TLS (рекомендуется):</b>${NL}${TLS_LINK_MAIN}${NL}"
+        TG_MSG+="${NL}🔵 <b>DD:</b>${NL}${DD_LINK_MAIN}${NL}"
+        TG_MSG+="${NL}⚪ <b>Обычная:</b>${NL}${PLAIN_LINK_MAIN}${NL}"
     fi
 
     TG_MSG+="${NL}─────────────────────────${NL}"
