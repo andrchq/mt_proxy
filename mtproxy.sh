@@ -455,9 +455,51 @@ CHANNEL_TAG=$(ask_with_default "Введите тег канала" "$DEFAULT_CH
 CHANNEL_TAG=${CHANNEL_TAG//@/}
 echo -e "${GREEN}Канал: @$CHANNEL_TAG${NC}"
 
-# ─── Этап 7: Подготовка файлов ────────────────────────────────────────────────
+# ─── Этап 7: Telegram Bot API ────────────────────────────────────────────
 
-print_step "7" "Создание файлов конфигурации"
+print_step "7" "Настройка Telegram-бота (опционально)"
+echo -e "${CYAN}После установки скрипт отправит ссылки подключения в Telegram-чат.${NC}"
+echo -e "${CYAN}Для этого нужен токен бота и Chat ID. Можно пропустить (Enter).${NC}"
+echo ""
+
+# Загрузка из предыдущей установки
+EXISTING_BOT_TOKEN=""
+EXISTING_CHAT_ID=""
+if [[ -f "$INSTALL_DIR/info.txt" ]]; then
+    EXISTING_BOT_TOKEN=$(grep -m1 "^Bot Token:" "$INSTALL_DIR/info.txt" 2>/dev/null | cut -d':' -f2- | sed 's/^ //')
+    EXISTING_CHAT_ID=$(grep -m1 "^Chat ID:" "$INSTALL_DIR/info.txt" 2>/dev/null | cut -d':' -f2- | sed 's/^ //')
+fi
+
+if [[ -n "$EXISTING_BOT_TOKEN" ]]; then
+    echo -e "${GREEN}Найден токен бота из предыдущей установки${NC}"
+    read -p "Bot Token [Enter = использовать прежний]: " BOT_TOKEN_INPUT </dev/tty
+    BOT_TOKEN=${BOT_TOKEN_INPUT:-$EXISTING_BOT_TOKEN}
+else
+    read -p "Bot Token (Enter = пропустить): " BOT_TOKEN </dev/tty
+fi
+
+if [[ -n "$BOT_TOKEN" ]]; then
+    if [[ -n "$EXISTING_CHAT_ID" ]]; then
+        read -p "Chat ID [Enter = $EXISTING_CHAT_ID]: " CHAT_ID_INPUT </dev/tty
+        CHAT_ID=${CHAT_ID_INPUT:-$EXISTING_CHAT_ID}
+    else
+        read -p "Chat ID: " CHAT_ID </dev/tty
+    fi
+
+    if [[ -z "$CHAT_ID" ]]; then
+        echo -e "${YELLOW}Chat ID не указан, отправка в Telegram пропущена.${NC}"
+        BOT_TOKEN=""
+    else
+        echo -e "${GREEN}✅ Telegram-бот настроен${NC}"
+    fi
+else
+    echo -e "${YELLOW}Отправка в Telegram пропущена.${NC}"
+    CHAT_ID=""
+fi
+
+# ─── Этап 8: Подготовка файлов ────────────────────────────────────────────
+
+print_step "8" "Создание файлов конфигурации"
 mkdir -p "$INSTALL_DIR"
 
 # Остановим и удалим предыдущий контейнер если есть
@@ -514,9 +556,9 @@ CMD ["python3", "mtprotoproxy.py"]
 DOCKEREOF
 echo -e "${GREEN}✅ Dockerfile создан${NC}"
 
-# ─── Этап 8: Сборка и запуск Docker ──────────────────────────────────────────
+# ─── Этап 9: Сборка и запуск Docker ──────────────────────────────────────────
 
-print_step "8" "Сборка Docker-образа"
+print_step "9" "Сборка Docker-образа"
 echo -e "${YELLOW}Сборка образа (это может занять 1-2 минуты)...${NC}"
 run_live_log "docker build -t $IMAGE_NAME $INSTALL_DIR/"
 if [ $? -ne 0 ]; then
@@ -525,7 +567,7 @@ if [ $? -ne 0 ]; then
 fi
 echo -e "${GREEN}✅ Docker-образ $IMAGE_NAME собран успешно${NC}"
 
-print_step "9" "Запуск контейнера"
+print_step "10" "Запуск контейнера"
 echo -e "${YELLOW}Запуск MTProxy в Docker-контейнере...${NC}"
 docker run -d \
     --name "$CONTAINER_NAME" \
@@ -557,11 +599,14 @@ MTProxy Installation Information (Docker)
 ==========================================
 Дата установки: $(date '+%Y-%m-%d %H:%M:%S')
 Хост прокси: $PROXY_HOST
+IP сервера: $EXTERNAL_IP
 Порт: $PORT
 Base Secret: $USER_SECRET
 TLS Domain: $TLS_DOMAIN
 Канал: @$CHANNEL_TAG
 AD_TAG: ${AD_TAG:-не установлен}
+Bot Token: ${BOT_TOKEN:-не установлен}
+Chat ID: ${CHAT_ID:-не установлен}
 Docker Image: $IMAGE_NAME
 Docker Container: $CONTAINER_NAME
 
@@ -576,9 +621,9 @@ if command -v ufw &> /dev/null && ufw status | grep -q "Status: active"; then
     ufw allow "$PORT"/tcp >/dev/null
 fi
 
-# ─── Этап 10: Утилита управления ─────────────────────────────────────────────
+# ─── Этап 11: Утилита управления ─────────────────────────────────────────────
 
-print_step "10" "Создание утилиты управления"
+print_step "11" "Создание утилиты управления"
 cat > "/tmp/mtproxy_utility" << 'UTILITY_EOF'
 #!/bin/bash
 RED='\033[0;31m'
@@ -907,6 +952,86 @@ chmod +x "/usr/local/bin/mtproxy"
 echo -e "${GREEN}✅ Утилита управления создана: /usr/local/bin/mtproxy${NC}"
 
 # ─── Финал ────────────────────────────────────────────────────────────────────
+
+# Отправка сообщения в Telegram
+if [[ -n "$BOT_TOKEN" ]] && [[ -n "$CHAT_ID" ]]; then
+    print_step "12" "Отправка ссылок в Telegram"
+    echo -e "${YELLOW}Формирование сообщения...${NC}"
+
+    DOMAIN_HEX=$(echo -n "$TLS_DOMAIN" | xxd -p | tr -d '\n')
+    EE_SECRET="ee${USER_SECRET}${DOMAIN_HEX}"
+    DD_SECRET="dd${USER_SECRET}"
+
+    # Ссылки с основным хостом (IP или домен)
+    TLS_LINK_MAIN="tg://proxy?server=${PROXY_HOST}&port=${PORT}&secret=${EE_SECRET}"
+    DD_LINK_MAIN="tg://proxy?server=${PROXY_HOST}&port=${PORT}&secret=${DD_SECRET}"
+    PLAIN_LINK_MAIN="tg://proxy?server=${PROXY_HOST}&port=${PORT}&secret=${USER_SECRET}"
+
+    # Формируем сообщение
+    TG_MSG="🛡 <b>MTProxy установлен успешно!</b>%0A"
+    TG_MSG+="%0A"
+    TG_MSG+="📍 <b>Сервер:</b> <code>${EXTERNAL_IP}</code>%0A"
+
+    if [[ "$PROXY_HOST" != "$EXTERNAL_IP" ]]; then
+        TG_MSG+="🌐 <b>Домен:</b> <code>${PROXY_HOST}</code>%0A"
+    fi
+
+    TG_MSG+="🔌 <b>Порт:</b> <code>${PORT}</code>%0A"
+    TG_MSG+="🔑 <b>Секрет:</b> <code>${USER_SECRET}</code>%0A"
+    TG_MSG+="🎭 <b>TLS-домен:</b> <code>${TLS_DOMAIN}</code>%0A"
+    TG_MSG+="📢 <b>Канал:</b> @${CHANNEL_TAG}%0A"
+
+    if [[ -n "$AD_TAG" ]]; then
+        TG_MSG+="🏷 <b>AD_TAG:</b> <code>${AD_TAG}</code>%0A"
+    else
+        TG_MSG+="🏷 <b>AD_TAG:</b> не установлен%0A"
+    fi
+
+    TG_MSG+="%0A"
+    TG_MSG+="─────────────────────────%0A"
+
+    # Блок ссылок с основным хостом
+    if [[ "$PROXY_HOST" != "$EXTERNAL_IP" ]]; then
+        # Есть домен — показываем и с доменом, и с IP
+        TG_MSG+="%0A🌐 <b>Ссылки с доменом (${PROXY_HOST}):</b>%0A"
+        TG_MSG+="%0A⭐ <b>TLS (рекомендуется):</b>%0A<code>${TLS_LINK_MAIN}</code>%0A"
+        TG_MSG+="%0A🔵 <b>DD:</b>%0A<code>${DD_LINK_MAIN}</code>%0A"
+        TG_MSG+="%0A⚪ <b>Обычная:</b>%0A<code>${PLAIN_LINK_MAIN}</code>%0A"
+
+        # Ссылки с IP
+        TLS_LINK_IP="tg://proxy?server=${EXTERNAL_IP}&port=${PORT}&secret=${EE_SECRET}"
+        DD_LINK_IP="tg://proxy?server=${EXTERNAL_IP}&port=${PORT}&secret=${DD_SECRET}"
+        PLAIN_LINK_IP="tg://proxy?server=${EXTERNAL_IP}&port=${PORT}&secret=${USER_SECRET}"
+
+        TG_MSG+="%0A─────────────────────────%0A"
+        TG_MSG+="%0A📍 <b>Ссылки с IP (${EXTERNAL_IP}):</b>%0A"
+        TG_MSG+="%0A⭐ <b>TLS (рекомендуется):</b>%0A<code>${TLS_LINK_IP}</code>%0A"
+        TG_MSG+="%0A🔵 <b>DD:</b>%0A<code>${DD_LINK_IP}</code>%0A"
+        TG_MSG+="%0A⚪ <b>Обычная:</b>%0A<code>${PLAIN_LINK_IP}</code>%0A"
+    else
+        # Только IP
+        TG_MSG+="%0A⭐ <b>TLS (рекомендуется):</b>%0A<code>${TLS_LINK_MAIN}</code>%0A"
+        TG_MSG+="%0A🔵 <b>DD:</b>%0A<code>${DD_LINK_MAIN}</code>%0A"
+        TG_MSG+="%0A⚪ <b>Обычная:</b>%0A<code>${PLAIN_LINK_MAIN}</code>%0A"
+    fi
+
+    TG_MSG+="%0A─────────────────────────%0A"
+    TG_MSG+="🧰 <b>Управление:</b> <code>mtproxy</code>"
+
+    # Отправка
+    SEND_RESULT=$(curl -s "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+        -d "chat_id=${CHAT_ID}" \
+        -d "parse_mode=HTML" \
+        -d "text=${TG_MSG}" 2>&1)
+
+    if echo "$SEND_RESULT" | grep -q '"ok":true'; then
+        echo -e "${GREEN}✅ Сообщение со ссылками отправлено в Telegram!${NC}"
+    else
+        echo -e "${RED}⚠️  Ошибка отправки в Telegram:${NC}"
+        echo "$SEND_RESULT" | head -3
+        echo -e "${YELLOW}Проверьте Bot Token и Chat ID.${NC}"
+    fi
+fi
 
 echo -e "\n${CYAN}Нажмите Enter для завершения установки и открытия дашборда...${NC}"
 read -r _ </dev/tty
