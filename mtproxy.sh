@@ -569,7 +569,7 @@ echo -e "${GREEN}✅ Dockerfile создан${NC}"
 
 print_step "9" "Сборка Docker-образа"
 echo -e "${YELLOW}Сборка образа (это может занять 1-2 минуты)...${NC}"
-run_live_log "docker build -t $IMAGE_NAME $INSTALL_DIR/"
+run_live_log "docker build --network=host -t $IMAGE_NAME $INSTALL_DIR/"
 if [ $? -ne 0 ]; then
     echo -e "${RED}Ошибка сборки Docker-образа!${NC}"
     exit 1
