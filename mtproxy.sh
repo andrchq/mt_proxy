@@ -550,10 +550,13 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install --no-install-recommends -y \
-      python3 python3-cryptography libcap2-bin ca-certificates && \
-    (apt-get install --no-install-recommends -y python3-uvloop || true) && \
-    (apt-get install --no-install-recommends -y python3-socks python3-pysocks || true) && \
+      python3 libcap2-bin ca-certificates && \
     rm -rf /var/lib/apt/lists/*
+RUN apt-get update && \
+    apt-get install --no-install-recommends -y python3-cryptography || true ; \
+    apt-get install --no-install-recommends -y python3-uvloop || true ; \
+    apt-get install --no-install-recommends -y python3-socks || true ; \
+    rm -rf /var/lib/apt/lists/* ; true
 RUN setcap cap_net_bind_service=+ep "$(readlink -f /usr/bin/python3)"
 RUN useradd tgproxy -u 10000
 USER tgproxy
