@@ -394,21 +394,23 @@ echo -e "${GREEN}Используется маскировка под: $TLS_DOMA
 
 print_step "6" "Регистрация прокси в Telegram"
 
-echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║${NC} ${BOLD}Сейчас нужно зарегистрировать прокси в @MTProxybot${NC}        ${CYAN}║${NC}"
-echo -e "${CYAN}╠════════════════════════════════════════════════════════════╣${NC}"
-echo -e "${CYAN}║${NC}                                                            ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}  1. Откройте бота ${BOLD}@MTProxybot${NC} в Telegram                  ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}  2. Отправьте ${BOLD}/newproxy${NC}                                    ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}  3. Бот спросит host:port — введите:                        ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     ${GREEN}${BOLD}${PROXY_HOST}:${PORT}${NC}$(printf '%*s' $((39 - ${#PROXY_HOST} - ${#PORT})) '')${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}  4. Бот спросит secret — введите:                            ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     ${GREEN}${BOLD}${USER_SECRET}${NC}$(printf '%*s' $((39 - ${#USER_SECRET})) '')${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}  5. Бот ответит — ${BOLD}proxy tag: XXXXXXXX...${NC}                   ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     Скопируйте этот тег (32 hex-символа)                    ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}  6. Далее через ${BOLD}/myproxies${NC} настройте рекламный канал       ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}                                                            ${CYAN}║${NC}"
-echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+DIM='\033[2m'
+echo ""
+echo -e "${DIM}────────────────────────────────────────────────────────────${NC}"
+echo -e "  ${CYAN}${BOLD}Сейчас нужно зарегистрировать прокси в @MTProxybot${NC}"
+echo -e "${DIM}────────────────────────────────────────────────────────────${NC}"
+echo ""
+echo -e "  1. Откройте бота ${BOLD}@MTProxybot${NC} в Telegram"
+echo -e "  2. Отправьте ${BOLD}/newproxy${NC}"
+echo -e "  3. Бот спросит host:port — введите:"
+echo -e "     ${GREEN}${BOLD}${PROXY_HOST}:${PORT}${NC}"
+echo -e "  4. Бот спросит secret — введите:"
+echo -e "     ${GREEN}${BOLD}${USER_SECRET}${NC}"
+echo -e "  5. Бот ответит — ${BOLD}proxy tag: XXXXXXXX...${NC}"
+echo -e "     Скопируйте этот тег (32 hex-символа)"
+echo -e "  6. Далее через ${BOLD}/myproxies${NC} настройте рекламный канал"
+echo ""
+echo -e "${DIM}────────────────────────────────────────────────────────────${NC}"
 
 echo ""
 
@@ -545,10 +547,14 @@ echo -e "${GREEN}✅ config.py создан${NC}"
 echo -e "${YELLOW}Создание Dockerfile...${NC}"
 cat > "$INSTALL_DIR/Dockerfile" << 'DOCKEREOF'
 FROM ubuntu:24.04
-RUN apt-get update && apt-get install --no-install-recommends -y \
-    python3 python3-uvloop python3-cryptography python3-socks \
-    libcap2-bin ca-certificates && rm -rf /var/lib/apt/lists/*
-RUN setcap cap_net_bind_service=+ep /usr/bin/python3.12
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get install --no-install-recommends -y \
+      python3 python3-cryptography libcap2-bin ca-certificates && \
+    (apt-get install --no-install-recommends -y python3-uvloop || true) && \
+    (apt-get install --no-install-recommends -y python3-socks python3-pysocks || true) && \
+    rm -rf /var/lib/apt/lists/*
+RUN setcap cap_net_bind_service=+ep "$(readlink -f /usr/bin/python3)"
 RUN useradd tgproxy -u 10000
 USER tgproxy
 WORKDIR /home/tgproxy/
@@ -967,62 +973,63 @@ if [[ -n "$BOT_TOKEN" ]] && [[ -n "$CHAT_ID" ]]; then
     DD_LINK_MAIN="tg://proxy?server=${PROXY_HOST}&port=${PORT}&secret=${DD_SECRET}"
     PLAIN_LINK_MAIN="tg://proxy?server=${PROXY_HOST}&port=${PORT}&secret=${USER_SECRET}"
 
-    # Формируем сообщение
-    TG_MSG="🛡 <b>MTProxy установлен успешно!</b>%0A"
-    TG_MSG+="%0A"
-    TG_MSG+="📍 <b>Сервер:</b> <code>${EXTERNAL_IP}</code>%0A"
+    # Формируем сообщение (используем реальные переносы строк)
+    NL=$'\n'
+    TG_MSG="🛡 <b>MTProxy установлен успешно!</b>${NL}"
+    TG_MSG+="${NL}"
+    TG_MSG+="📍 <b>Сервер:</b> <code>${EXTERNAL_IP}</code>${NL}"
 
     if [[ "$PROXY_HOST" != "$EXTERNAL_IP" ]]; then
-        TG_MSG+="🌐 <b>Домен:</b> <code>${PROXY_HOST}</code>%0A"
+        TG_MSG+="🌐 <b>Домен:</b> <code>${PROXY_HOST}</code>${NL}"
     fi
 
-    TG_MSG+="🔌 <b>Порт:</b> <code>${PORT}</code>%0A"
-    TG_MSG+="🔑 <b>Секрет:</b> <code>${USER_SECRET}</code>%0A"
-    TG_MSG+="🎭 <b>TLS-домен:</b> <code>${TLS_DOMAIN}</code>%0A"
-    TG_MSG+="📢 <b>Канал:</b> @${CHANNEL_TAG}%0A"
+    TG_MSG+="🔌 <b>Порт:</b> <code>${PORT}</code>${NL}"
+    TG_MSG+="🔑 <b>Секрет:</b> <code>${USER_SECRET}</code>${NL}"
+    TG_MSG+="🎭 <b>TLS-домен:</b> <code>${TLS_DOMAIN}</code>${NL}"
+    TG_MSG+="📢 <b>Канал:</b> @${CHANNEL_TAG}${NL}"
 
     if [[ -n "$AD_TAG" ]]; then
-        TG_MSG+="🏷 <b>AD_TAG:</b> <code>${AD_TAG}</code>%0A"
+        TG_MSG+="🏷 <b>AD_TAG:</b> <code>${AD_TAG}</code>${NL}"
     else
-        TG_MSG+="🏷 <b>AD_TAG:</b> не установлен%0A"
+        TG_MSG+="🏷 <b>AD_TAG:</b> не установлен${NL}"
     fi
 
-    TG_MSG+="%0A"
-    TG_MSG+="─────────────────────────%0A"
+    TG_MSG+="${NL}"
+    TG_MSG+="─────────────────────────${NL}"
 
     # Блок ссылок с основным хостом
     if [[ "$PROXY_HOST" != "$EXTERNAL_IP" ]]; then
         # Есть домен — показываем и с доменом, и с IP
-        TG_MSG+="%0A🌐 <b>Ссылки с доменом (${PROXY_HOST}):</b>%0A"
-        TG_MSG+="%0A⭐ <b>TLS (рекомендуется):</b>%0A<code>${TLS_LINK_MAIN}</code>%0A"
-        TG_MSG+="%0A🔵 <b>DD:</b>%0A<code>${DD_LINK_MAIN}</code>%0A"
-        TG_MSG+="%0A⚪ <b>Обычная:</b>%0A<code>${PLAIN_LINK_MAIN}</code>%0A"
+        TG_MSG+="${NL}🌐 <b>Ссылки с доменом (${PROXY_HOST}):</b>${NL}"
+        TG_MSG+="${NL}⭐ <b>TLS (рекомендуется):</b>${NL}<code>${TLS_LINK_MAIN}</code>${NL}"
+        TG_MSG+="${NL}🔵 <b>DD:</b>${NL}<code>${DD_LINK_MAIN}</code>${NL}"
+        TG_MSG+="${NL}⚪ <b>Обычная:</b>${NL}<code>${PLAIN_LINK_MAIN}</code>${NL}"
 
         # Ссылки с IP
         TLS_LINK_IP="tg://proxy?server=${EXTERNAL_IP}&port=${PORT}&secret=${EE_SECRET}"
         DD_LINK_IP="tg://proxy?server=${EXTERNAL_IP}&port=${PORT}&secret=${DD_SECRET}"
         PLAIN_LINK_IP="tg://proxy?server=${EXTERNAL_IP}&port=${PORT}&secret=${USER_SECRET}"
 
-        TG_MSG+="%0A─────────────────────────%0A"
-        TG_MSG+="%0A📍 <b>Ссылки с IP (${EXTERNAL_IP}):</b>%0A"
-        TG_MSG+="%0A⭐ <b>TLS (рекомендуется):</b>%0A<code>${TLS_LINK_IP}</code>%0A"
-        TG_MSG+="%0A🔵 <b>DD:</b>%0A<code>${DD_LINK_IP}</code>%0A"
-        TG_MSG+="%0A⚪ <b>Обычная:</b>%0A<code>${PLAIN_LINK_IP}</code>%0A"
+        TG_MSG+="${NL}─────────────────────────${NL}"
+        TG_MSG+="${NL}📍 <b>Ссылки с IP (${EXTERNAL_IP}):</b>${NL}"
+        TG_MSG+="${NL}⭐ <b>TLS (рекомендуется):</b>${NL}<code>${TLS_LINK_IP}</code>${NL}"
+        TG_MSG+="${NL}🔵 <b>DD:</b>${NL}<code>${DD_LINK_IP}</code>${NL}"
+        TG_MSG+="${NL}⚪ <b>Обычная:</b>${NL}<code>${PLAIN_LINK_IP}</code>${NL}"
     else
         # Только IP
-        TG_MSG+="%0A⭐ <b>TLS (рекомендуется):</b>%0A<code>${TLS_LINK_MAIN}</code>%0A"
-        TG_MSG+="%0A🔵 <b>DD:</b>%0A<code>${DD_LINK_MAIN}</code>%0A"
-        TG_MSG+="%0A⚪ <b>Обычная:</b>%0A<code>${PLAIN_LINK_MAIN}</code>%0A"
+        TG_MSG+="${NL}⭐ <b>TLS (рекомендуется):</b>${NL}<code>${TLS_LINK_MAIN}</code>${NL}"
+        TG_MSG+="${NL}🔵 <b>DD:</b>${NL}<code>${DD_LINK_MAIN}</code>${NL}"
+        TG_MSG+="${NL}⚪ <b>Обычная:</b>${NL}<code>${PLAIN_LINK_MAIN}</code>${NL}"
     fi
 
-    TG_MSG+="%0A─────────────────────────%0A"
+    TG_MSG+="${NL}─────────────────────────${NL}"
     TG_MSG+="🧰 <b>Управление:</b> <code>mtproxy</code>"
 
-    # Отправка
+    # Отправка (--data-urlencode корректно кодирует переносы строк и & в ссылках)
     SEND_RESULT=$(curl -s "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
         -d "chat_id=${CHAT_ID}" \
         -d "parse_mode=HTML" \
-        -d "text=${TG_MSG}" 2>&1)
+        --data-urlencode "text=${TG_MSG}" 2>&1)
 
     if echo "$SEND_RESULT" | grep -q '"ok":true'; then
         echo -e "${GREEN}✅ Сообщение со ссылками отправлено в Telegram!${NC}"
