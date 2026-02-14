@@ -385,9 +385,8 @@ fi
 
 print_step "5" "Настройка TLS-маскировки"
 echo -e "${CYAN}Выберите домен для маскировки трафика (должен работать по HTTPS).${NC}"
-TLS_DOMAINS=("github.com" "cloudflare.com" "microsoft.com" "amazon.com" "wikipedia.org" "reddit.com")
-RANDOM_DOMAIN=${TLS_DOMAINS[$RANDOM % ${#TLS_DOMAINS[@]}]}
-TLS_DOMAIN=$(ask_with_default "TLS-домен для маскировки" "$RANDOM_DOMAIN")
+echo -e "${CYAN}Рекомендуется www.cloudflare.com — стандартный TLS, работает из РФ.${NC}"
+TLS_DOMAIN=$(ask_with_default "TLS-домен для маскировки" "www.cloudflare.com")
 echo -e "${GREEN}Используется маскировка под: $TLS_DOMAIN${NC}"
 
 # ─── Этап 6: Регистрация в @MTProxybot ───────────────────────────────────────
@@ -529,11 +528,13 @@ USERS = {
 
 MODES = {
     "classic": False,
-    "secure": False,
+    "secure": True,
     "tls": True
 }
 
 TLS_DOMAIN = "$TLS_DOMAIN"
+
+PREFER_IPV6 = False
 CONFIGEOF
 
 if [[ -n "$AD_TAG" ]]; then
@@ -738,7 +739,7 @@ change_tls_domain() {
     fi
 
     local current_tls=$(get_config_value "TLS_DOMAIN")
-    [[ -z "$current_tls" ]] && current_tls="github.com"
+    [[ -z "$current_tls" ]] && current_tls="www.cloudflare.com"
 
     echo -e "${CYAN}Текущий TLS-домен:${NC} ${BOLD}$current_tls${NC}"
     read -p "Введите новый TLS-домен [Enter = $current_tls]: " new_tls </dev/tty
