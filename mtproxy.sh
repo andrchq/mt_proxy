@@ -415,7 +415,7 @@ echo ""
 # Загрузка AD_TAG из предыдущей установки
 EXISTING_AD_TAG=""
 if [[ -f "$INSTALL_DIR/config.py" ]]; then
-    EXISTING_AD_TAG=$(grep -oP '(?<=AD_TAG = ")[^"]+' "$INSTALL_DIR/config.py" 2>/dev/null)
+    EXISTING_AD_TAG=$(grep "^AD_TAG" "$INSTALL_DIR/config.py" 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
 fi
 
 if [[ -n "$EXISTING_AD_TAG" ]]; then
@@ -612,7 +612,7 @@ domain_to_hex() { echo -n "$1" | xxd -p | tr -d '\n'; }
 get_config_value() {
     local key="$1"
     if [[ -f "$INSTALL_DIR/config.py" ]]; then
-        grep -oP "(?<=^${key} = ).*" "$INSTALL_DIR/config.py" 2>/dev/null | tr -d '"' | tr -d "'"
+        grep "^${key} = " "$INSTALL_DIR/config.py" 2>/dev/null | head -1 | sed "s/^${key} = //" | tr -d '"' | tr -d "'"
     fi
 }
 
@@ -625,9 +625,10 @@ get_info_value() {
 
 get_links() {
     PORT=$(get_config_value "PORT")
-    SECRET=""
-    if [[ -f "$INSTALL_DIR/config.py" ]]; then
-        SECRET=$(grep -oP '(?<="tg":\s*")[^"]+' "$INSTALL_DIR/config.py" 2>/dev/null)
+    # Секрет читаем из info.txt (надёжно) или из config.py (fallback)
+    SECRET=$(grep -m1 "Base Secret:" "$INSTALL_DIR/info.txt" 2>/dev/null | awk '{print $3}')
+    if [[ -z "$SECRET" ]] && [[ -f "$INSTALL_DIR/config.py" ]]; then
+        SECRET=$(grep '"tg"' "$INSTALL_DIR/config.py" 2>/dev/null | sed 's/.*"\([0-9a-f]\{32\}\)".*/\1/')
     fi
     TLS_DOMAIN=$(get_config_value "TLS_DOMAIN")
     AD_TAG=$(get_config_value "AD_TAG")
